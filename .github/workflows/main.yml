@@ -29,16 +29,21 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. PRE-CONFIGURACIÓN DE RUTAS
+          # 1. OBTENER RUTA ABSOLUTA DEL TRABAJO
+          # Esto nos permite decirle a Gradle exactamente dónde está la llave
+          CUR_DIR=$(pwd)
+          KEYSTORE_PATH="$CUR_DIR/android.keystore"
+
+          # 2. PRE-CONFIGURACIÓN DE RUTAS
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\",\"lastCheckForUpdates\":$(date +%s%3N)}" > ~/.bubblewrap/config.json
 
-          # 2. CREACIÓN DEL KEYSTORE
-          keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
+          # 3. CREACIÓN DEL KEYSTORE (FIRMA)
+          keytool -genkey -v -keystore "$KEYSTORE_PATH" -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
-          # 3. CREAR EL ARCHIVO TWA-MANIFEST (Aseguramos valores numéricos)
+          # 4. CREAR EL ARCHIVO TWA-MANIFEST
           cat <<EOF > twa-manifest.json
           {
             "packageId": "cl.crispro941.twa",
@@ -55,7 +60,7 @@ jobs:
             "appVersionCode": 1,
             "appVersionName": "1.0.0",
             "signingKey": {
-              "path": "../android.keystore",
+              "path": "$KEYSTORE_PATH",
               "alias": "android"
             },
             "orientation": "portrait",
@@ -76,37 +81,34 @@ jobs:
           }
           EOF
 
-          # 4. GENERAR PROYECTO ANDROID
+          # 5. GENERAR PROYECTO ANDROID
           echo "Generando estructura del proyecto..."
           printf "1\n1.0.0\n" | bubblewrap update --skipConfig
 
-          # 5. PARCHE GLOBAL DE SINTAXIS (Arregla todos los campos vacíos "key: ,")
-          echo "Aplicando parches de seguridad al código de Android..."
-          # Arregla la notificación vacía
+          # 6. PARCHES DE SINTAXIS (Global)
+          echo "Aplicando parches de seguridad al código..."
           sed -i 's/enableNotifications: ,/enableNotifications: false,/g' app/build.gradle
-          # Arregla el splash screen vacío
           sed -i 's/splashScreenFadeOutDuration: ,/splashScreenFadeOutDuration: 300,/g' app/build.gradle
-          # Arregla cualquier otro campo que haya quedado con coma suelta
           sed -i 's/: ,/: "" ,/g' app/build.gradle
 
-          # 6. COMPILACIÓN DIRECTA CON GRADLE
+          # 7. COMPILACIÓN DIRECTA CON GRADLE (Usando ruta absoluta para la firma)
           echo "Iniciando compilación con Gradle..."
           chmod +x gradlew
           ./gradlew assembleRelease \
-            -Pandroid.injected.signing.store.file=../android.keystore \
+            -Pandroid.injected.signing.store.file="$KEYSTORE_PATH" \
             -Pandroid.injected.signing.store.password=crispro941 \
             -Pandroid.injected.signing.key.alias=android \
             -Pandroid.injected.signing.key.password=crispro941
 
-          # 7. ORGANIZAR RESULTADO
+          # 8. ORGANIZAR RESULTADO
           mkdir -p output
           find . -name "*release.apk" -exec mv {} output/app-release.apk \;
           
           if [ ! -f output/app-release.apk ]; then
-            echo "Error: No se pudo localizar el APK generado."
+            echo "Error: No se pudo generar el APK."
             exit 1
           fi
-          echo "--- PROCESO COMPLETADO CON ÉXITO ---"
+          echo "--- COMPILACIÓN EXITOSA ---"
 
       - name: Upload Finished APK
         uses: actions/upload-artifact@v4
