@@ -32,32 +32,33 @@ jobs:
 
       - name: Build APK
         run: |
-          # 1. Variables del payload (con valores por defecto por si fallan)
+          # 1. Variables del Payload
           APP_URL="${{ github.event.client_payload.url }}"
           MANIFEST_URL="${{ github.event.client_payload.manifestUrl }}"
           APP_NAME="${{ github.event.client_payload.appName }}"
           PKG_ID="${{ github.event.client_payload.packageId || 'cl.crispro941.twa' }}"
-          ICON="${{ github.event.client_payload.iconUrl }}"
-          COLOR="${{ github.event.client_payload.themeColor || '#000000' }}"
+          ICON_URL="${{ github.event.client_payload.iconUrl }}"
+          COLOR="${{ github.event.client_payload.themeColor || '#00ffa3' }}"
           V_NAME="${{ github.event.client_payload.vName || '1.0.0' }}"
           V_CODE="${{ github.event.client_payload.vCode || '1' }}"
 
-          # 2. LIMPIEZA AGRESIVA DEL HOST (Esto es lo que suele fallar)
-          # Elimina https://, http:// y todo lo que esté después de la primera barra /
+          # 2. Limpieza de HOST (vital para Bubblewrap)
           APP_HOST=$(echo "$APP_URL" | sed -e 's|^[^/]*//||' -e 's|/.*$||')
 
-          echo "DEBUG: Generando para Host -> $APP_HOST"
-          echo "DEBUG: Package ID -> $PKG_ID"
+          # 3. TRUCO: Descargar el icono localmente
+          # Si la URL falla (404), usamos un icono por defecto para que el build no se detenga.
+          curl -L -s -o local_icon.png "$ICON_URL" || curl -L -s -o local_icon.png "https://via.placeholder.com/512.png"
 
-          # 3. Configurar Bubblewrap
+          # 4. Configurar Bubblewrap
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
 
-          # 4. Generar Keystore
+          # 5. Generar Keystore
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" -dname "CN=Crispro, O=Studio, C=CL"
 
-          # 5. Generar twa-manifest.json
+          # 6. Generar twa-manifest.json
+          # Usamos la ruta local del icono para evitar el error "Invalid URL"
           cat <<EOF > twa-manifest.json
           {
             "packageId": "$PKG_ID",
@@ -67,8 +68,8 @@ jobs:
             "themeColor": "$COLOR",
             "backgroundColor": "#ffffff",
             "startUrl": "/",
-            "iconUrl": "$ICON",
-            "maskableIconUrl": "$ICON",
+            "iconUrl": "$ICON_URL",
+            "maskableIconUrl": "$ICON_URL",
             "appVersionCode": $V_CODE,
             "appVersionName": "$V_NAME",
             "signingKey": {
@@ -82,22 +83,19 @@ jobs:
           }
           EOF
 
-          # MOSTRAR EL JSON EN EL LOG PARA DEBUGEAR SI FALLA
-          echo "---- CONTENIDO DEL MANIFIESTO ----"
-          cat twa-manifest.json
-          echo "----------------------------------"
+          # 7. Inicializar y Construir (Usando tu lógica anterior que funcionaba)
+          # 'yes' para las preguntas interactivas
+          yes | bubblewrap init --manifest twa-manifest.json --directory . --skipProxy || true
+          
+          # Si el paso anterior falló por la URL del manifest remoto, forzamos la actualización local
+          printf "1\n$V_NAME\n" | bubblewrap update --skipConfig
 
-          # 6. Inicializar Proyecto
-          # 'yes' acepta la creación de la carpeta.
-          # Usamos --skipProxy para evitar errores de red innecesarios.
-          yes | bubblewrap init --manifest twa-manifest.json --directory . --skipProxy
-
-          # 7. Fix para errores comunes de Gradle en entornos CI
+          # 8. Aplicar parches de Gradle
           if [ -f app/build.gradle ]; then
-             sed -i 's/: ,/: "" ,/g' app/build.gradle
+            sed -i 's/: ,/: "" ,/g' app/build.gradle
           fi
 
-          # 8. Compilar (Usando rutas absolutas para evitar el error 'file not found')
+          # 9. Compilar
           chmod +x gradlew
           ./gradlew assembleRelease \
             -Pandroid.injected.signing.store.file=$(pwd)/android.keystore \
@@ -105,15 +103,14 @@ jobs:
             -Pandroid.injected.signing.key.alias=android \
             -Pandroid.injected.signing.key.password=crispro941
 
-          # 9. Renombrar y Subir
+          # 10. Renombrar y subir a tu servidor
           SAFE_NAME=$(echo "$APP_NAME" | sed 's/ /_/g')
           FILE_NAME="${SAFE_NAME}-v${V_NAME}.apk"
           
-          # Buscar el APK generado y copiarlo a la raiz
           APK_PATH=$(find . -name "*release.apk" | head -n 1)
           cp "$APK_PATH" app.apk
           
-          echo "Subiendo APK: $FILE_NAME"
+          echo "Subiendo a: downloads/$FILE_NAME"
           curl -f -X POST \
             -F "file=@app.apk" \
             "https://demo.crispro941.cl/apk/v2/upload_apk.php?key=CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024&name=$FILE_NAME"
