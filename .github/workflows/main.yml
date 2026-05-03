@@ -10,6 +10,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      # ── 1. Preparación del Entorno ──────────────────────────
       - name: Checkout repo
         uses: actions/checkout@v4
 
@@ -30,41 +31,53 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Build APK
+      # ── 2. Procesar Variables y Limpiar Host ────────────────
+      - name: Set env vars
         run: |
-          # 1. Cargar variables del payload
           APP_URL="${{ github.event.client_payload.url }}"
-          MANIFEST_URL="${{ github.event.client_payload.manifestUrl }}"
-          APP_NAME="${{ github.event.client_payload.appName }}"
-          PKG_ID="${{ github.event.client_payload.packageId || 'cl.crispro941.twa' }}"
-          ICON_URL="${{ github.event.client_payload.iconUrl }}"
-          COLOR="${{ github.event.client_payload.themeColor || '#00ffa3' }}"
-          V_NAME="${{ github.event.client_payload.vName || '1.0.0' }}"
-          V_CODE="${{ github.event.client_payload.vCode || '1' }}"
-
-          # 2. Limpieza de HOST (Vital para evitar el error "Invalid URL")
-          # Elimina protocolos y paths. Ejemplo: https://sitio.com/app -> sitio.com
+          # Limpieza profunda de Host: quita https:// y cualquier cosa después de la /
           APP_HOST=$(echo "$APP_URL" | sed -e 's|^[^/]*//||' -e 's|/.*$||')
+          
+          echo "APP_URL=$APP_URL" >> $GITHUB_ENV
+          echo "APP_HOST=$APP_HOST" >> $GITHUB_ENV
+          echo "MANIFEST_URL=${{ github.event.client_payload.manifestUrl }}" >> $GITHUB_ENV
+          echo "APP_NAME=${{ github.event.client_payload.appName }}" >> $GITHUB_ENV
+          echo "PKG_ID=${{ github.event.client_payload.packageId || 'cl.crispro941.twa' }}" >> $GITHUB_ENV
+          echo "THEME_COLOR=${{ github.event.client_payload.themeColor || '#00ffa3' }}" >> $GITHUB_ENV
+          echo "ICON_URL=${{ github.event.client_payload.iconUrl }}" >> $GITHUB_ENV
+          echo "V_NAME=${{ github.event.client_payload.vName || '1.0.0' }}" >> $GITHUB_ENV
+          echo "V_CODE=${{ github.event.client_payload.vCode || '1' }}" >> $GITHUB_ENV
 
-          # 3. Descargar ícono localmente para asegurar el build
-          curl -L -s -o local_icon.png "$ICON_URL" || curl -L -s -o local_icon.png "https://via.placeholder.com/512.png"
+      # ── 3. Generar Keystore para Firma ──────────────────────
+      - name: Generate keystore
+        run: |
+          keytool -genkey -v \
+            -keystore android.keystore \
+            -alias android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass "crispro941" \
+            -keypass  "crispro941" \
+            -dname    "CN=Crispro, OU=Studio, O=Crispro, L=Santiago, ST=RM, C=CL"
 
-          # 4. Configuración interna de Bubblewrap
+      # ── 4. Configurar Bubblewrap Localmente ──────────────────
+      - name: Configure Bubblewrap
+        run: |
           mkdir -p ~/.bubblewrap
-          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
+          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" \
+            > ~/.bubblewrap/config.json
 
-          # 5. Generar Keystore para firmar el APK
-          keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass "crispro941" -keypass "crispro941" -dname "CN=Crispro, O=Studio, C=CL"
-
-          # 6. Crear el archivo de configuración para Bubblewrap (twa-manifest.json)
+      # ── 5. Crear Manifiesto TWA ──────────────────────────────
+      - name: Generate twa-manifest.json
+        run: |
           cat <<EOF > twa-manifest.json
           {
             "packageId": "$PKG_ID",
             "host": "$APP_HOST",
             "name": "$APP_NAME",
             "shortName": "$APP_NAME",
-            "themeColor": "$COLOR",
+            "themeColor": "$THEME_COLOR",
             "backgroundColor": "#ffffff",
             "startUrl": "/",
             "iconUrl": "$ICON_URL",
@@ -82,20 +95,24 @@ jobs:
           }
           EOF
 
-          # 7. Inicializar proyecto en la raíz actual
-          # Usamos 'yes' para responder "Y" a la creación de carpetas
-          # '|| true' evita que el workflow se detenga si Bubblewrap da un aviso menor
+      # ── 6. Inicializar y Compilar (Solución Error 130 e Invalid URL) ──
+      - name: Bubblewrap Build
+        run: |
+          # Descargar el ícono localmente para evitar que el build falle por red
+          curl -L -s -o local_icon.png "$ICON_URL" || true
+          
+          # 'yes' responde "Y" a todas las preguntas. Usamos --directory . para no crear subcarpetas.
           yes | bubblewrap init --manifest twa-manifest.json --directory . --skipProxy || true
           
-          # Forzar actualización de versión si el init falló en algún campo
+          # Forzar actualización de versión por si el init falló silenciosamente
           printf "1\n$V_NAME\n" | bubblewrap update --skipConfig
-
-          # 8. Parche para compatibilidad de Gradle
+          
+          # Fix de Gradle para compatibilidad en CI
           if [ -f app/build.gradle ]; then
             sed -i 's/: ,/: "" ,/g' app/build.gradle
           fi
 
-          # 9. Compilación final con Gradle
+          # Ejecutar el build de Gradle (como ya estamos en la raíz, gradlew siempre existirá aquí)
           chmod +x gradlew
           ./gradlew assembleRelease \
             -Pandroid.injected.signing.store.file=$(pwd)/android.keystore \
@@ -103,22 +120,29 @@ jobs:
             -Pandroid.injected.signing.key.alias=android \
             -Pandroid.injected.signing.key.password=crispro941
 
-          # 10. Renombrar y Subir (VERSION MEJORADA)
+      # ── 7. Renombrar y Subir (Bypass 403 Firewall) ───────────
+      - name: Rename and Upload
+        run: |
           SAFE_NAME=$(echo "$APP_NAME" | sed 's/ /_/g')
           FILE_NAME="${SAFE_NAME}-v${V_NAME}.apk"
           
+          # Encontrar el APK generado (signed o normal)
           APK_PATH=$(find . -name "*release-signed.apk" -o -name "*release.apk" | head -n 1)
           cp "$APK_PATH" app.apk
           
-          echo "Subiendo APK: $FILE_NAME"
-          # Añadimos -A (User Agent) y -L (Redirects) para evitar bloqueos
-          curl -v -L -f -X POST \
-            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
-            -F "file=@app.apk" \
-            "https://demo.crispro941.cl/apk/v2/upload_apk.php?key=CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024&name=$FILE_NAME&action=apk"
+          echo "Enviando APK: $FILE_NAME a tu servidor..."
 
-      - name: Save Artifact
+          # USAMOS HEADER X-CRISPRO-KEY PARA EVITAR EL BLOQUEO 403 DEL FIREWALL
+          curl -v -L -f -X POST \
+            -H "X-CRISPRO-KEY: CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024" \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+            -F "file=@app.apk" \
+            "https://demo.crispro941.cl/apk/v2/upload_apk.php?name=$FILE_NAME&action=apk"
+
+      # ── 8. Guardar como Artefacto (Opcional) ─────────────────
+      - name: Save APK as GitHub artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
+          name: ${{ env.APP_NAME }}-v${{ env.V_NAME }}
           path: app.apk
+          retention-days: 7
