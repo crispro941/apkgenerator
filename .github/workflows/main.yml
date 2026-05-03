@@ -6,7 +6,7 @@ on:
 
 jobs:
   build:
-    name: Build Android APK (Production)
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
@@ -24,28 +24,29 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # Instalación de herramientas necesarias
       - name: Install Bubblewrap CLI
         run: npm install -g @bubblewrap/cli
 
-      # Generación del proyecto y compilación
-      # Usamos la URL enviada desde tu panel PHP: ${{ github.event.client_payload.url }}
       - name: Build APK from URL
+        # Usamos printf para responder automáticamente a cualquier pregunta extra del CLI
         run: |
           echo "Generando APK para: ${{ github.event.client_payload.url }}"
           
-          # Inicializa el proyecto de forma automática con la URL del payload
-          # Se usa --yes para aceptar los términos y configuraciones por defecto
+          # Configuramos Bubblewrap para que sepa dónde está el JDK y el Android SDK sin preguntar
+          # Esto evita el error 130
+          bubblewrap doctor --skipPathUpdate <<EOF
+          n
+          $JAVA_HOME
+          $ANDROID_HOME
+          EOF
+
+          # Inicialización y build forzado
           bubblewrap init --url=${{ github.event.client_payload.url }} --yes
-          
-          # Compila el proyecto para generar el archivo .apk
           bubblewrap build --yes
           
-          # Creamos la carpeta de salida y movemos el APK generado
           mkdir -p output
           mv *.apk output/
 
-      # Subida del archivo real al sistema de artefactos
       - name: Upload Finished APK
         uses: actions/upload-artifact@v4
         with:
