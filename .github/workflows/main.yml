@@ -29,25 +29,26 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. Configurar Bubblewrap SIN preguntas interactivas
-          # Usamos el comando 'config' para establecer las rutas directamente
-          bubblewrap config --jdkPath "$JAVA_HOME" --androidSdkPath "$ANDROID_HOME"
+          # 1. INYECCIÓN DIRECTA DE CONFIGURACIÓN (Sin usar la CLI para evitar preguntas)
+          # Creamos el archivo que Bubblewrap consulta para saber si ya está configurado
+          mkdir -p ~/.bubblewrap
+          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\",\"lastCheckForUpdates\":$(date +%s%3N)}" > ~/.bubblewrap/config.json
           
-          # 2. Crear Keystore antes del init (Firma de CRISPRO941)
+          # 2. Crear Keystore de CRISPRO941
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
           # 3. Inicializar el proyecto
-          # El flag --skipConfig es clave aquí
           echo "Generando configuración para: ${{ github.event.client_payload.url }}"
-          yes "" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig || true
+          # Usamos un pipe de echo "n" por si acaso intentara preguntar algo del JDK
+          echo "n" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig || true
           
-          # 4. Crear archivo de contraseñas para el build silencioso
+          # 4. Forzar el archivo de firma para el build
           echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"android\"}" > bubblewrap.json
 
           # 5. Compilación final
-          # --skipCheck evita que vuelva a pedir rutas de SDK/JDK
+          # --skipCheck es vital para no volver a entrar en el bucle del JDK
           bubblewrap build --yes --skipCheck
           
           # 6. Mover APK a salida
