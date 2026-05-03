@@ -13,22 +13,16 @@ jobs:
 
       - name: Build APK
         run: |
-          # Variables
+          CUR_DIR=$(pwd)
+          KEYSTORE_PATH="$CUR_DIR/android.keystore"
+          
+          # Datos del Payload
           APP_URL="${{ github.event.client_payload.url }}"
-          APP_HOST=$(echo $APP_URL | sed -e 's,https://,,;s,/.*,,')
+          MANIFEST_URL="${{ github.event.client_payload.manifestUrl }}"
           APP_NAME="${{ github.event.client_payload.appName }}"
+          APP_HOST=$(echo $APP_URL | sed -e 's,https://,,;s,/.*,,')
           ICON="${{ github.event.client_payload.iconUrl }}"
           COLOR="${{ github.event.client_payload.themeColor }}"
-          
-          # Si no tiene manifest en la web, creamos uno virtual
-          cat <<EOF > manifest.json
-          {
-            "name": "$APP_NAME", "short_name": "$APP_NAME",
-            "start_url": "/", "display": "standalone",
-            "background_color": "#ffffff", "theme_color": "$COLOR",
-            "icons": [{ "src": "$ICON", "sizes": "512x512", "type": "image/png" }]
-          }
-          EOF
 
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
@@ -44,7 +38,7 @@ jobs:
             "startUrl": "/", "iconUrl": "$ICON", "maskableIconUrl": "$ICON",
             "appVersionCode": 1, "appVersionName": "1.0.0",
             "signingKey": { "path": "./android.keystore", "alias": "android" },
-            "webManifestUrl": "https://$APP_HOST/manifest.json",
+            "webManifestUrl": "$MANIFEST_URL",
             "fallbackType": "customtabs", "features": {}, "alphaDependencies": { "enabled": false }
           }
           EOF
