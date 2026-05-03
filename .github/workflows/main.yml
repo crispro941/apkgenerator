@@ -29,14 +29,16 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. INSTALAR COMPONENTES DEL SDK QUE BUBBLEWRAP BUSCA
-          # Esto asegura que la validación de "androidSdk isn't correct" pase.
-          echo "Instalando Build Tools y Platform 34..."
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_HOME "build-tools;34.0.0" "platforms;android-34"
+          # 1. CONFIGURACIÓN OFICIAL DE BUBBLEWRAP
+          # 'n' responde "No" a la pregunta de si queremos que Bubblewrap descargue su propio JDK/SDK
+          echo "Configurando rutas de herramientas..."
+          printf "n\n" | bubblewrap config set jdkPath "${JAVA_HOME}"
+          printf "n\n" | bubblewrap config set androidSdkPath "${ANDROID_HOME}"
 
-          # 2. CONFIGURACIÓN DEL SISTEMA (JDK y SDK)
-          mkdir -p ~/.bubblewrap
-          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\",\"lastCheckForUpdates\":$(date +%s%3N)}" > ~/.bubblewrap/config.json
+          # 2. ACEPTAR LICENCIAS DE ANDROID
+          # Esto es obligatorio para que el proceso de compilación no se detenga
+          echo "Aceptando licencias de Android..."
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null
 
           # 3. CREACIÓN DEL KEYSTORE (FIRMA)
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
@@ -79,13 +81,14 @@ jobs:
 
           # 5. GENERAR PROYECTO (UPDATE)
           # Respondemos "1" y "1.0" para las preguntas de versión
+          echo "Actualizando proyecto Android..."
           printf "1\n1.0\n" | bubblewrap update --skipConfig
 
           # 6. CONFIGURAR CONTRASEÑAS PARA EL BUILD
           echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"android\"}" > bubblewrap.json
 
-          # 7. COMPILACIÓN FINAL (SIN SKIPCHECK PARA QUE REVALIDE)
-          echo "Iniciando compilación del APK..."
+          # 7. COMPILACIÓN FINAL
+          echo "Iniciando compilación final..."
           bubblewrap build --yes
 
           # 8. MOVER RESULTADO
