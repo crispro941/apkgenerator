@@ -29,14 +29,13 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. CONFIGURACIÓN OFICIAL DE BUBBLEWRAP
-          # 'n' responde "No" a la pregunta de si queremos que Bubblewrap descargue su propio JDK/SDK
+          # 1. CONFIGURACIÓN OFICIAL DE BUBBLEWRAP (Con todas las respuestas)
+          # Respondemos "n" (No instalar) y luego la "$RUTA" para JDK y SDK
           echo "Configurando rutas de herramientas..."
-          printf "n\n" | bubblewrap config set jdkPath "${JAVA_HOME}"
-          printf "n\n" | bubblewrap config set androidSdkPath "${ANDROID_HOME}"
+          printf "n\n${JAVA_HOME}\n" | bubblewrap config set jdkPath
+          printf "n\n${ANDROID_HOME}\n" | bubblewrap config set androidSdkPath
 
           # 2. ACEPTAR LICENCIAS DE ANDROID
-          # Esto es obligatorio para que el proceso de compilación no se detenga
           echo "Aceptando licencias de Android..."
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null
 
