@@ -10,18 +10,16 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      # ── Checkout ────────────────────────────────────────────
+      # ── 1. Preparación del Entorno ───────────────────────────
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # ── Java 17 ─────────────────────────────────────────────
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      # ── Node / Bubblewrap ────────────────────────────────────
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -30,11 +28,10 @@ jobs:
       - name: Install Bubblewrap
         run: npm install -g @bubblewrap/cli
 
-      # ── Android SDK ──────────────────────────────────────────
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # ── Variables del payload ────────────────────────────────
+      # ── 2. Variables y Configuración ─────────────────────────
       - name: Set env vars
         run: |
           echo "APP_URL=${{ github.event.client_payload.url }}"             >> $GITHUB_ENV
@@ -45,11 +42,11 @@ jobs:
           echo "PKG_ID=${{ github.event.client_payload.packageId }}"         >> $GITHUB_ENV
           echo "V_NAME=${{ github.event.client_payload.vName }}"             >> $GITHUB_ENV
           echo "V_CODE=${{ github.event.client_payload.vCode }}"             >> $GITHUB_ENV
-          # Host sin protocolo ni path
+          
+          # Extraer Host (dominio) del URL
           APP_HOST=$(echo "${{ github.event.client_payload.url }}" | sed -e 's,https://,,;s,http://,,;s,/.*,,')
           echo "APP_HOST=$APP_HOST" >> $GITHUB_ENV
 
-      # ── Keystore ─────────────────────────────────────────────
       - name: Generate keystore
         run: |
           keytool -genkey -v \
@@ -62,14 +59,13 @@ jobs:
             -keypass  "crispro941" \
             -dname    "CN=Crispro, OU=Studio, O=Crispro, L=Santiago, ST=RM, C=CL"
 
-      # ── Bubblewrap config ────────────────────────────────────
-      - name: Configure Bubblewrap
+      - name: Configure Bubblewrap CLI
         run: |
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" \
             > ~/.bubblewrap/config.json
 
-      # ── TWA Manifest ─────────────────────────────────────────
+      # ── 3. Generación del Manifiesto TWA ─────────────────────
       - name: Generate twa-manifest.json
         run: |
           cat <<EOF > twa-manifest.json
@@ -97,34 +93,36 @@ jobs:
           }
           EOF
 
-      # ── Init & Build ─────────────────────────────────────────
-      - name: Bubblewrap init
-        run: printf "1\n$V_NAME\n" | bubblewrap init --manifest "$MANIFEST_URL" || true
-
-      - name: Build APK
+      # ── 4. Construcción del APK ──────────────────────────────
+      - name: Build APK with Bubblewrap
         run: |
-          chmod +x gradlew
-          ./gradlew assembleRelease \
-            -Pandroid.injected.signing.store.file=../android.keystore \
-            -Pandroid.injected.signing.store.password=crispro941 \
-            -Pandroid.injected.signing.key.alias=android \
-            -Pandroid.injected.signing.key.password=crispro941
+          # build genera el proyecto y compila en un solo paso
+          bubblewrap build --no-prompt \
+            --signingKeyPath="./android.keystore" \
+            --signingKeyPassword="crispro941" \
+            --signingKeyStorePassword="crispro941" \
+            --signingKeyAlias="android"
 
-      # ── Renombrar y subir ────────────────────────────────────
-      - name: Rename APK
+      # ── 5. Procesamiento de Salida ───────────────────────────
+      - name: Prepare APK for delivery
         run: |
-          FILE_NAME=$(echo "$APP_NAME" | sed 's/ /_/g')-v${V_NAME}.apk
-          find . -name "*-release.apk" -exec cp {} app.apk \;
+          # Limpiar nombre de app para el archivo
+          CLEAN_NAME=$(echo "$APP_NAME" | sed 's/ /_/g')
+          FILE_NAME="${CLEAN_NAME}-v${V_NAME}.apk"
+          
+          # Bubblewrap genera un archivo terminado en release-signed.apk
+          find . -name "*release-signed.apk" -exec cp {} app.apk \;
+          
           echo "APK_NAME=$FILE_NAME" >> $GITHUB_ENV
+          echo "Final APK name: $FILE_NAME"
 
       - name: Upload APK to server
         run: |
-          curl -f -X POST \
+          curl -f -v -X POST \
             -F "file=@app.apk" \
             "https://tusitio.cl/upload_apk.php?key=CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024&name=$APK_NAME" \
             || (echo "Upload failed" && exit 1)
 
-      # ── Guardar APK como artifact de GitHub (opcional) ───────
       - name: Save APK as GitHub artifact
         uses: actions/upload-artifact@v4
         with:
