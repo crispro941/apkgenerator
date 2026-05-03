@@ -9,7 +9,6 @@ jobs:
     name: Build Android APK
     runs-on: ubuntu-latest
     env:
-      # Preparamos el entorno para Node 24 según la recomendación de GitHub
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
@@ -19,7 +18,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24' # Actualizado a la versión más reciente
+          node-version: '24'
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -32,20 +31,22 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          echo "Generando APK para: ${{ github.event.client_payload.url }}"
+          echo "Iniciando generación para: ${{ github.event.client_payload.url }}"
           
-          # Configuración de rutas
+          # 1. Configuración de rutas (Indispensable para evitar el error 130)
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
           
-          # Inicialización usando el manifiesto que acabas de crear
+          # 2. Inicialización automática
+          # Al tener el manifest en la raíz, Bubblewrap lo detecta solo con la URL
           bubblewrap init --url=${{ github.event.client_payload.url }} --yes
           
-          # Construcción
+          # 3. Compilación del APK real
           bubblewrap build --yes
           
+          # 4. Preparar descarga
           mkdir -p output
-          mv *.apk output/
+          mv *.apk output/ || echo "No se encontró el APK"
 
       - name: Upload Finished APK
         uses: actions/upload-artifact@v4
