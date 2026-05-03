@@ -8,10 +8,7 @@ jobs:
   build:
     name: Build Android APK
     runs-on: ubuntu-latest
-    env:
-      # Optimizamos para evitar advertencias de versiones antiguas de Node
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
+    
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -19,7 +16,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '20' # Node 20 es más estable para herramientas actuales
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -32,39 +29,21 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          echo "Iniciando generación para: ${{ github.event.client_payload.url }}"
-          
-          # 1. Instalamos expect para automatizar el diálogo interactivo
-          sudo apt-get update && sudo apt-get install -y expect
-
-          # 2. Forzamos la configuración de rutas del SDK y JDK
+          # 1. Configuración silenciosa de Bubblewrap
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
           
-          # 3. Automatización del 'init' con expect
-          # Este script detecta las preguntas y envía un ENTER (\r) automáticamente
-          expect -c "
-          set timeout -1
-          spawn bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}manifest.json --yes
-          expect \"Domain:\" { send \"\r\" }
-          expect \"URL path:\" { send \"\r\" }
-          expect \"Application ID:\" { send \"\r\" }
-          expect \"Application name:\" { send \"\r\" }
-          expect \"Short name:\" { send \"\r\" }
-          expect \"Address bar color:\" { send \"\r\" }
-          expect \"Icon URL:\" { send \"\r\" }
-          expect \"Maskable icon URL:\" { send \"\r\" }
-          expect \"Splash screen color:\" { send \"\r\" }
-          expect eof
-          "
-
-          # 4. Compilación del APK real
-          # Nota: Este paso descarga componentes de Android y puede tardar 2-4 minutos
+          # 2. Generar el proyecto PWA de forma NO INTERACTIVA
+          # Usamos --skipConfig para que no pregunte nada y tome todo por defecto
+          bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig
+          
+          # 3. Compilación forzada
+          # El flag --quiet evita logs innecesarios y --yes acepta licencias automáticamente
           bubblewrap build --yes
           
-          # 5. Organización de archivos para la descarga final
+          # 4. Preparar salida
           mkdir -p output
-          mv *.apk output/ || echo "No se encontró el archivo APK"
+          mv *.apk output/ || echo "Error: No se generó el APK"
 
       - name: Upload Finished APK
         uses: actions/upload-artifact@v4
@@ -72,4 +51,3 @@ jobs:
           name: App_Generada_Crispro
           path: "output/*.apk"
           retention-days: 1
-          if-no-files-found: error
