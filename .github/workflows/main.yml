@@ -29,16 +29,9 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. CREAR CONFIGURACIÓN MANUAL (Sin comandos interactivos)
-          # Esto evita que Bubblewrap pregunte por el JDK o el SDK.
+          # 1. PRE-CONFIGURACIÓN DE RUTAS
           mkdir -p ~/.bubblewrap
-          cat <<EOF > ~/.bubblewrap/config.json
-          {
-            "jdkPath": "${JAVA_HOME}",
-            "androidSdkPath": "${ANDROID_HOME}",
-            "lastCheckForUpdates": $(date +%s%3N)
-          }
-          EOF
+          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\",\"lastCheckForUpdates\":$(date +%s%3N)}" > ~/.bubblewrap/config.json
 
           # 2. CREACIÓN DEL KEYSTORE (FIRMA)
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
@@ -63,7 +56,7 @@ jobs:
             "orientation": "portrait",
             "display": "standalone",
             "signingKey": {
-              "path": "./android.keystore",
+              "path": "../android.keystore",
               "alias": "android"
             },
             "generatorApp": "bubblewrap-cli",
@@ -79,26 +72,32 @@ jobs:
           }
           EOF
 
-          # 4. GENERAR PROYECTO (UPDATE)
-          # Usamos printf para asegurar que si pide algo, responda "1" y "1.0.0"
-          echo "Generando archivos de Android..."
+          # 4. GENERAR PROYECTO ANDROID (UPDATE)
+          # Esto crea la carpeta interna del proyecto
+          echo "Generando estructura del proyecto..."
           printf "1\n1.0.0\n" | bubblewrap update --skipConfig
 
-          # 5. CONFIGURAR CONTRASEÑAS PARA EL BUILD
-          echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"android\"}" > bubblewrap.json
+          # 5. COMPILACIÓN DIRECTA CON GRADLE (Saltamos el error de Bubblewrap)
+          # Entramos a la carpeta generada y compilamos el APK Release
+          echo "Compilando con Gradle..."
+          cd ./app-release || cd .
+          chmod +x gradlew
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file=../android.keystore \
+            -Pandroid.injected.signing.store.password=crispro941 \
+            -Pandroid.injected.signing.key.alias=android \
+            -Pandroid.injected.signing.key.password=crispro941
 
-          # 6. COMPILACIÓN FINAL (Con el flag --skipCheck para evitar validaciones de SDK redundantes)
-          echo "Iniciando compilación del APK..."
-          bubblewrap build --yes --skipCheck
-
-          # 7. MOVER RESULTADO
+          # 6. ORGANIZAR RESULTADOS
+          cd ..
           mkdir -p output
-          find . -name "*.apk" -exec mv {} output/ \;
+          find . -name "*release.apk" -exec mv {} output/app-release.apk \;
           
-          if [ -z "$(ls -A output)" ]; then
-            echo "Error: No se encontró el APK."
+          if [ ! -f output/app-release.apk ]; then
+            echo "Error: El APK no se pudo construir."
             exit 1
           fi
+          echo "--- COMPILACIÓN EXITOSA ---"
 
       - name: Upload Finished APK
         uses: actions/upload-artifact@v4
