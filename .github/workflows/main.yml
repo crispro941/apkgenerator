@@ -38,7 +38,7 @@ jobs:
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
-          # 3. CREAR EL ARCHIVO TWA-MANIFEST COMPLETO
+          # 3. CREAR EL ARCHIVO TWA-MANIFEST (Aseguramos valores numéricos)
           cat <<EOF > twa-manifest.json
           {
             "packageId": "cl.crispro941.twa",
@@ -51,15 +51,15 @@ jobs:
             "startUrl": "/",
             "iconUrl": "https://i.ibb.co/M5BsCD9K/descarga.png",
             "maskableIconUrl": "https://i.ibb.co/M5BsCD9K/descarga.png",
+            "splashScreenFadeOutDuration": 300,
             "appVersionCode": 1,
             "appVersionName": "1.0.0",
-            "orientation": "portrait",
-            "display": "standalone",
             "signingKey": {
               "path": "../android.keystore",
               "alias": "android"
             },
-            "generatorApp": "bubblewrap-cli",
+            "orientation": "portrait",
+            "display": "standalone",
             "webManifestUrl": "https://crispro941.cl/manifest.json",
             "fallbackType": "customtabs",
             "features": {
@@ -76,14 +76,18 @@ jobs:
           }
           EOF
 
-          # 4. GENERAR PROYECTO ANDROID (UPDATE)
+          # 4. GENERAR PROYECTO ANDROID
           echo "Generando estructura del proyecto..."
           printf "1\n1.0.0\n" | bubblewrap update --skipConfig
 
-          # 5. PARCHE DE EMERGENCIA (Corrige el error de sintaxis en build.gradle)
-          # Buscamos la línea "enableNotifications: ," y la cambiamos por "enableNotifications: false,"
-          echo "Aplicando parche de sintaxis al build.gradle..."
+          # 5. PARCHE GLOBAL DE SINTAXIS (Arregla todos los campos vacíos "key: ,")
+          echo "Aplicando parches de seguridad al código de Android..."
+          # Arregla la notificación vacía
           sed -i 's/enableNotifications: ,/enableNotifications: false,/g' app/build.gradle
+          # Arregla el splash screen vacío
+          sed -i 's/splashScreenFadeOutDuration: ,/splashScreenFadeOutDuration: 300,/g' app/build.gradle
+          # Arregla cualquier otro campo que haya quedado con coma suelta
+          sed -i 's/: ,/: "" ,/g' app/build.gradle
 
           # 6. COMPILACIÓN DIRECTA CON GRADLE
           echo "Iniciando compilación con Gradle..."
@@ -99,10 +103,10 @@ jobs:
           find . -name "*release.apk" -exec mv {} output/app-release.apk \;
           
           if [ ! -f output/app-release.apk ]; then
-            echo "Error: El APK no se pudo construir."
+            echo "Error: No se pudo localizar el APK generado."
             exit 1
           fi
-          echo "--- COMPILACIÓN EXITOSA ---"
+          echo "--- PROCESO COMPLETADO CON ÉXITO ---"
 
       - name: Upload Finished APK
         uses: actions/upload-artifact@v4
