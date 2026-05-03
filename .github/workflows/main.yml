@@ -29,34 +29,37 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. INYECCIÓN DIRECTA DE CONFIGURACIÓN (Sin usar la CLI para evitar preguntas)
-          # Creamos el archivo que Bubblewrap consulta para saber si ya está configurado
+          # 1. LIMPIEZA Y CONFIGURACIÓN MANUAL TOTAL
+          # Creamos la configuración global con rutas absolutas de GitHub Actions
+          rm -rf ~/.bubblewrap
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\",\"lastCheckForUpdates\":$(date +%s%3N)}" > ~/.bubblewrap/config.json
           
-          # 2. Crear Keystore de CRISPRO941
+          # 2. CREAR KEYSTORE (Firma de CRISPRO941)
+          # Lo creamos antes para que Bubblewrap lo encuentre listo
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
-          # 3. Inicializar el proyecto
+          # 3. INICIALIZAR PROYECTO
+          # Quitamos el echo "n" para que el 'yes ""' funcione limpio con el dominio real
           echo "Generando configuración para: ${{ github.event.client_payload.url }}"
-          # Usamos un pipe de echo "n" por si acaso intentara preguntar algo del JDK
-          echo "n" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig || true
+          yes "" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig || true
           
-          # 4. Forzar el archivo de firma para el build
+          # 4. INYECTAR FIRMA EN EL PROYECTO
+          # Esto asegura que Bubblewrap sepa qué contraseña usar sin preguntar
           echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"android\"}" > bubblewrap.json
 
-          # 5. Compilación final
-          # --skipCheck es vital para no volver a entrar en el bucle del JDK
+          # 5. COMPILACIÓN (Usando flags para saltar validaciones redundantes)
+          # Usamos --skipCheck para que ignore cualquier supuesto error del SDK que ya configuramos
           bubblewrap build --yes --skipCheck
           
-          # 6. Mover APK a salida
+          # 6. MOVER RESULTADO
           mkdir -p output
           find . -name "*.apk" -exec mv {} output/ \;
           
           if [ -z "$(ls -A output)" ]; then
-            echo "Error: No se encontró el APK."
+            echo "Error crítico: No se generó el archivo APK."
             exit 1
           fi
 
