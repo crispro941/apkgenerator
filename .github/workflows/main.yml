@@ -31,23 +31,24 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          echo "Generando APK para: ${{ github.event.client_payload.url }}"
+          echo "Iniciando generación para: ${{ github.event.client_payload.url }}"
           
-          # 1. Configuración de rutas para evitar prompts interactivos
+          # 1. Forzar configuración de rutas
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
           
-          # 2. Inicialización FORZANDO el manifiesto que ya creaste
-          # Le pasamos la URL del manifest directamente para que no falle
-          bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}manifest.json --yes
+          # 2. Inicialización con respuestas automáticas
+          # Usamos 'printf' para enviar: Dominio, Ruta (/), y confirmar el resto
+          printf "\n\n\n\n\n\n\n\n\n\n" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}manifest.json --yes
           
-          # 3. Construcción del APK
+          # 3. Compilación del APK real
+          # Este paso tardará unos minutos (descargará el SDK de Android)
           bubblewrap build --yes
           
-          # 4. Preparar para descarga
+          # 4. Mover el resultado para la descarga
           mkdir -p output
-          mv *.apk output/ || echo "No se encontró el APK"
-
+          mv *.apk output/ || echo "No se encontró el APK en la raíz"
+          
       - name: Upload Finished APK
         uses: actions/upload-artifact@v4
         with:
