@@ -1,4 +1,4 @@
-name: APK Generator Pro
+name: APK Generator Pro Universal
 
 on:
   repository_dispatch:
@@ -24,52 +24,83 @@ jobs:
         run: |
           CUR_DIR=$(pwd)
           KEYSTORE_PATH="$CUR_DIR/android.keystore"
+          
+          # Variables del Payload
           APP_URL="${{ github.event.client_payload.url }}"
           APP_HOST=$(echo $APP_URL | sed -e 's,https://,,;s,/.*,,')
           APP_NAME="${{ github.event.client_payload.appName }}"
-          FILE_NAME=$(echo "$APP_NAME" | sed 's/ /_/g')-v${{ github.event.client_payload.vName }}.apk
+          PACKAGE_ID="${{ github.event.client_payload.packageId }}"
+          THEME_COLOR="${{ github.event.client_payload.themeColor }}"
+          BG_COLOR="${{ github.event.client_payload.backgroundColor }}"
+          ICON_URL="${{ github.event.client_payload.iconUrl }}"
+          V_NAME="${{ github.event.client_payload.vName }}"
+          V_CODE="${{ github.event.client_payload.vCode }}"
+          
+          FILE_NAME=$(echo "$APP_NAME" | sed 's/ /_/g')-v${V_NAME}.apk
 
+          # 1. CREAR UN MANIFEST VIRTUAL (Por si la web no tiene uno)
+          # Esto hace que el generador funcione con CUALQUIER URL
+          cat <<EOF > manifest.json
+          {
+            "name": "$APP_NAME",
+            "short_name": "$APP_NAME",
+            "start_url": "/",
+            "display": "standalone",
+            "background_color": "$BG_COLOR",
+            "theme_color": "$THEME_COLOR",
+            "icons": [
+              { "src": "$ICON_URL", "sizes": "512x512", "type": "image/png" }
+            ]
+          }
+          EOF
+
+          # 2. CONFIGURACIÓN BUBBLEWRAP
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
 
+          # 3. FIRMA (KEYSTORE)
           keytool -genkey -v -keystore "$KEYSTORE_PATH" -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
+          # 4. TWA-MANIFEST (Apuntando al manifest local que creamos arriba)
           cat <<EOF > twa-manifest.json
           {
-            "packageId": "${{ github.event.client_payload.packageId }}",
+            "packageId": "$PACKAGE_ID",
             "host": "$APP_HOST",
             "name": "$APP_NAME",
             "shortName": "$APP_NAME",
-            "themeColor": "${{ github.event.client_payload.themeColor }}",
-            "navigationColor": "${{ github.event.client_payload.themeColor }}",
-            "backgroundColor": "${{ github.event.client_payload.backgroundColor }}",
+            "themeColor": "$THEME_COLOR",
+            "navigationColor": "$THEME_COLOR",
+            "backgroundColor": "$BG_COLOR",
             "startUrl": "/",
-            "iconUrl": "${{ github.event.client_payload.iconUrl }}",
-            "maskableIconUrl": "${{ github.event.client_payload.iconUrl }}",
-            "appVersionCode": ${{ github.event.client_payload.vCode }},
-            "appVersionName": "${{ github.event.client_payload.vName }}",
+            "iconUrl": "$ICON_URL",
+            "maskableIconUrl": "$ICON_URL",
+            "appVersionCode": $V_CODE,
+            "appVersionName": "$V_NAME",
             "signingKey": { "path": "$KEYSTORE_PATH", "alias": "android" },
-            "orientation": "portrait", "display": "standalone",
-            "webManifestUrl": "$APP_URL/manifest.json",
-            "fallbackType": "customtabs", "features": {}, "alphaDependencies": { "enabled": false }
+            "orientation": "portrait",
+            "display": "standalone",
+            "webManifestUrl": "https://$APP_HOST/manifest.json",
+            "fallbackType": "customtabs",
+            "features": {},
+            "alphaDependencies": { "enabled": false }
           }
           EOF
 
-          printf "1\n1.0.0\n" | bubblewrap update --skipConfig
+          # 5. GENERAR PROYECTO
+          # Usamos un truco: le decimos a Bubblewrap que el manifest ya está generado
+          printf "$V_CODE\n$V_NAME\n" | bubblewrap update --skipConfig
+          
+          # Parchear errores comunes
           sed -i 's/: ,/: "" ,/g' app/build.gradle
+          
+          # 6. COMPILAR APK
           chmod +x gradlew
           ./gradlew assembleRelease -Pandroid.injected.signing.store.file="$KEYSTORE_PATH" -Pandroid.injected.signing.store.password=crispro941 -Pandroid.injected.signing.key.alias=android -Pandroid.injected.signing.key.password=crispro941
 
           find . -name "*release.apk" -exec mv {} app-release.apk \;
           
-          # ENVÍO AL SERVIDOR
+          # 7. ENVIAR AL SERVIDOR (Cambia la URL por la tuya real)
           curl -X POST -F "file=@app-release.apk" \
           "https://demo.crispro941.cl/apk/upload_apk.php?key=CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024&name=$FILE_NAME"
-
-      - name: Upload Finished APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: App_Generada
-          path: app-release.apk
