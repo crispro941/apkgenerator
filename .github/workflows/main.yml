@@ -103,18 +103,19 @@ jobs:
             -Pandroid.injected.signing.key.alias=android \
             -Pandroid.injected.signing.key.password=crispro941
 
-          # 10. Renombrar y Subir el resultado a tu servidor
+          # 10. Renombrar y Subir (VERSION MEJORADA)
           SAFE_NAME=$(echo "$APP_NAME" | sed 's/ /_/g')
           FILE_NAME="${SAFE_NAME}-v${V_NAME}.apk"
           
-          # Buscamos el APK firmado generado
           APK_PATH=$(find . -name "*release-signed.apk" -o -name "*release.apk" | head -n 1)
           cp "$APK_PATH" app.apk
           
-          # Enviar de vuelta a upload_apk.php (usando tu estructura de carpetas)
-          curl -f -X POST \
+          echo "Subiendo APK: $FILE_NAME"
+          # Añadimos -A (User Agent) y -L (Redirects) para evitar bloqueos
+          curl -v -L -f -X POST \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" \
             -F "file=@app.apk" \
-            "https://demo.crispro941.cl/apk/v2/upload_apk.php?key=CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024&name=$FILE_NAME"
+            "https://demo.crispro941.cl/apk/v2/upload_apk.php?key=CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024&name=$FILE_NAME&action=apk"
 
       - name: Save Artifact
         uses: actions/upload-artifact@v4
