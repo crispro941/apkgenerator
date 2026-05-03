@@ -31,20 +31,20 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          echo "Iniciando generación para: ${{ github.event.client_payload.url }}"
+          echo "Generando APK para: ${{ github.event.client_payload.url }}"
           
-          # 1. Configuración de rutas (Indispensable para evitar el error 130)
+          # 1. Configuración de rutas para evitar prompts interactivos
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
           
-          # 2. Inicialización automática
-          # Al tener el manifest en la raíz, Bubblewrap lo detecta solo con la URL
-          bubblewrap init --url=${{ github.event.client_payload.url }} --yes
+          # 2. Inicialización FORZANDO el manifiesto que ya creaste
+          # Le pasamos la URL del manifest directamente para que no falle
+          bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}manifest.json --yes
           
-          # 3. Compilación del APK real
+          # 3. Construcción del APK
           bubblewrap build --yes
           
-          # 4. Preparar descarga
+          # 4. Preparar para descarga
           mkdir -p output
           mv *.apk output/ || echo "No se encontró el APK"
 
