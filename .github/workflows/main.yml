@@ -29,22 +29,22 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. PRE-CONFIGURACIÓN DE RUTAS
+          # 1. CONFIGURACIÓN DE RUTAS DEL SISTEMA
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\",\"lastCheckForUpdates\":$(date +%s%3N)}" > ~/.bubblewrap/config.json
 
-          # 2. CREACIÓN DEL KEYSTORE
+          # 2. CREACIÓN DEL KEYSTORE (FIRMA)
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
-          # 3. CREACIÓN DEL ARCHIVO DE CONFIGURACIÓN TWA
-          # Nota: 'host' no lleva 'https://', solo el dominio.
+          # 3. CREAR EL ARCHIVO TWA-MANIFEST MANUALMENTE
+          # Esto contiene toda la configuración para que Bubblewrap no pregunte nada.
           cat <<EOF > twa-manifest.json
           {
             "packageId": "cl.crispro941.twa",
             "host": "crispro941.cl",
-            "name": "CRISPRO941 - Soluciones Digitales",
+            "name": "CRISPRO941",
             "shortName": "CRISPRO941",
             "themeColor": "#000000",
             "navigationColor": "#000000",
@@ -73,18 +73,20 @@ jobs:
           }
           EOF
 
-          # 4. INICIALIZAR DESDE EL ARCHIVO LOCAL
-          # El flag correcto es --twaManifest (con M mayúscula)
-          bubblewrap init --twaManifest=twa-manifest.json --skipConfig
+          # 4. INICIALIZAR EL PROYECTO
+          # 'y' responde a: "twa-manifest.json ya existe, ¿quieres usarlo?"
+          # 'n' responde a: "¿Quieres cambiar algún valor?"
+          echo "Inicializando proyecto Android..."
+          printf "y\nn\n" | bubblewrap init --manifest https://crispro941.cl/manifest.json --skipConfig
 
-          # 5. CONFIGURACIÓN DE CONTRASEÑAS PARA EL BUILD
+          # 5. CONFIGURAR CONTRASEÑAS PARA EL BUILD
           echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"android\"}" > bubblewrap.json
 
-          # 6. COMPILACIÓN FINAL
-          # Aceptamos licencias y compilamos. --skipCheck evita que valide el SDK de nuevo.
+          # 6. COMPILACIÓN (BUILD)
+          # Aceptamos licencias y compilamos.
           yes | bubblewrap build --yes --skipCheck
 
-          # 7. MOVER RESULTADO A OUTPUT
+          # 7. MOVER RESULTADO
           mkdir -p output
           find . -name "*.apk" -exec mv {} output/ \;
           
