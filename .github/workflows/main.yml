@@ -29,32 +29,29 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. Configuración de rutas
-          mkdir -p ~/.bubblewrap
-          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
+          # 1. Configurar Bubblewrap de forma explícita antes de empezar
+          # Esto evita que 'build' se queje del SDK
+          bubblewrap doctor --jdkPath="$JAVA_HOME" --androidSdkPath="$ANDROID_HOME"
           
-          # 2. CREAR EL KEYSTORE PRIMERO (Importante para que init no lo pida)
-          # Usamos el alias 'android' que es el que Bubblewrap busca por defecto
+          # 2. Crear el Keystore de CRISPRO941
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
-          # 3. Inicialización del proyecto
-          # Ahora que android.keystore existe, no preguntará por nombres/apellidos
+          # 3. Inicializar proyecto
           echo "Generando configuración para: ${{ github.event.client_payload.url }}"
           yes "" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig || true
           
-          # 4. Forzar contraseñas en el archivo de configuración
-          # Esto evita que las pida durante el build
+          # 4. Inyectar contraseñas y firma
           echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"android\"}" > bubblewrap.json
 
-          # 5. Compilación del APK
-          yes | bubblewrap build --yes
+          # 5. Compilación final con flags de NO INTERACCIÓN
+          # Eliminamos el 'yes |' para evitar el "Broken pipe" y usamos los flags nativos
+          bubblewrap build --yes --skipCheck
           
-          # 6. Mover resultado
+          # 6. Mover APK a carpeta de salida
           mkdir -p output
-          mv *.apk output/ 2>/dev/null || true
-          mv app/build/outputs/apk/release/*.apk output/ 2>/dev/null || true
+          find . -name "*.apk" -exec mv {} output/ \;
           
           if [ -z "$(ls -A output)" ]; then
             echo "Error: No se generó el APK."
@@ -67,4 +64,3 @@ jobs:
           name: App_Generada_Crispro
           path: "output/*.apk"
           retention-days: 1
-          if-no-files-found: error
