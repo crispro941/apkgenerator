@@ -2,12 +2,11 @@ name: APK Generator Pipeline
 
 on:
   repository_dispatch:
-    # Este 'types' debe coincidir exactamente con el event_type de tu proxy.php
     types: [build-app]
 
 jobs:
   build:
-    name: Build Android APK
+    name: Build Android APK (Production)
     runs-on: ubuntu-latest
 
     steps:
@@ -25,38 +24,32 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Install Android SDK
-        uses: android-actions/setup-android@v3
+      # Instalación de herramientas necesarias
+      - name: Install Bubblewrap CLI
+        run: npm install -g @bubblewrap/cli
 
-      # --- PASO DE COMPILACIÓN ---
-      # Aquí es donde ocurre la magia. 
-      # Usamos el payload que enviaste: ${{ github.event.client_payload.url }}
-      - name: Generate APK from URL
+      # Generación del proyecto y compilación
+      # Usamos la URL enviada desde tu panel PHP: ${{ github.event.client_payload.url }}
+      - name: Build APK from URL
         run: |
-          echo "Iniciando generación para: ${{ github.event.client_payload.url }}"
+          echo "Generando APK para: ${{ github.event.client_payload.url }}"
           
-          # 1. Instalamos Bubblewrap (CLI oficial de Google para Web-to-APK)
-          npm install -g @bubblewrap/cli
+          # Inicializa el proyecto de forma automática con la URL del payload
+          # Se usa --yes para aceptar los términos y configuraciones por defecto
+          bubblewrap init --url=${{ github.event.client_payload.url }} --yes
           
-          # 2. Inicializamos el proyecto de forma no interactiva
-          # Nota: En un entorno real, Bubblewrap requiere un archivo 'twa-manifest.json'.
-          # Si prefieres algo más simple como un WebView nativo, aquí ejecutarías 
-          # tu comando de: ./gradlew assembleRelease
+          # Compila el proyecto para generar el archivo .apk
+          bubblewrap build --yes
           
-          # Ejemplo de comando para simular la creación de un APK si ya tienes el código base:
-          # cd android-project && ./gradlew assembleDebug
-          
-          # PARA PRUEBAS (Generamos un archivo dummy para verificar que el pipeline funciona):
+          # Creamos la carpeta de salida y movemos el APK generado
           mkdir -p output
-          echo "Simulando APK para ${{ github.event.client_payload.url }}" > output/app-release.apk
+          mv *.apk output/
 
-      # --- PASO CRÍTICO: SUBIDA DEL ARTEFACTO ---
-      # Si este paso falla o la ruta está mal, el PHP no encontrará la descarga.
+      # Subida del archivo real al sistema de artefactos
       - name: Upload Finished APK
         uses: actions/upload-artifact@v4
         with:
           name: App_Generada_Crispro
-          # Buscamos cualquier archivo .apk en la carpeta output o raíz
-          path: "**/*.apk"
+          path: "output/*.apk"
           retention-days: 1
           if-no-files-found: error
