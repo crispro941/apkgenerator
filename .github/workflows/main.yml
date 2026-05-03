@@ -32,28 +32,32 @@ jobs:
 
       - name: Build APK
         run: |
-          # 1. Extraer y limpiar variables del payload
+          # 1. Variables del payload (con valores por defecto por si fallan)
           APP_URL="${{ github.event.client_payload.url }}"
           MANIFEST_URL="${{ github.event.client_payload.manifestUrl }}"
           APP_NAME="${{ github.event.client_payload.appName }}"
-          PKG_ID="${{ github.event.client_payload.packageId }}"
+          PKG_ID="${{ github.event.client_payload.packageId || 'cl.crispro941.twa' }}"
           ICON="${{ github.event.client_payload.iconUrl }}"
-          COLOR="${{ github.event.client_payload.themeColor }}"
-          V_NAME="${{ github.event.client_payload.vName }}"
-          V_CODE="${{ github.event.client_payload.vCode }}"
+          COLOR="${{ github.event.client_payload.themeColor || '#000000' }}"
+          V_NAME="${{ github.event.client_payload.vName || '1.0.0' }}"
+          V_CODE="${{ github.event.client_payload.vCode || '1' }}"
 
-          # Limpiar el HOST: quitar https://, http:// y cualquier path /final
-          APP_HOST=$(echo "$APP_URL" | sed -e 's,https://,,;s,http://,,;s,/.*,,')
+          # 2. LIMPIEZA AGRESIVA DEL HOST (Esto es lo que suele fallar)
+          # Elimina https://, http:// y todo lo que esté después de la primera barra /
+          APP_HOST=$(echo "$APP_URL" | sed -e 's|^[^/]*//||' -e 's|/.*$||')
 
-          # 2. Configurar Bubblewrap
+          echo "DEBUG: Generando para Host -> $APP_HOST"
+          echo "DEBUG: Package ID -> $PKG_ID"
+
+          # 3. Configurar Bubblewrap
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
 
-          # 3. Generar Keystore
+          # 4. Generar Keystore
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" -dname "CN=Crispro, O=Studio, C=CL"
 
-          # 4. Generar twa-manifest.json corregido
+          # 5. Generar twa-manifest.json
           cat <<EOF > twa-manifest.json
           {
             "packageId": "$PKG_ID",
@@ -78,16 +82,22 @@ jobs:
           }
           EOF
 
-          # 5. Inicializar el proyecto en la carpeta actual (.) de forma NO interactiva
-          # Usamos 'yes' para aceptar la creación de carpetas y 'printf' para las versiones
+          # MOSTRAR EL JSON EN EL LOG PARA DEBUGEAR SI FALLA
+          echo "---- CONTENIDO DEL MANIFIESTO ----"
+          cat twa-manifest.json
+          echo "----------------------------------"
+
+          # 6. Inicializar Proyecto
+          # 'yes' acepta la creación de la carpeta.
+          # Usamos --skipProxy para evitar errores de red innecesarios.
           yes | bubblewrap init --manifest twa-manifest.json --directory . --skipProxy
 
-          # 6. Aplicar fix de gradle (el que tenías antes por si acaso)
+          # 7. Fix para errores comunes de Gradle en entornos CI
           if [ -f app/build.gradle ]; then
-            sed -i 's/: ,/: "" ,/g' app/build.gradle
+             sed -i 's/: ,/: "" ,/g' app/build.gradle
           fi
 
-          # 7. Compilar usando gradlew (como en tu versión original)
+          # 8. Compilar (Usando rutas absolutas para evitar el error 'file not found')
           chmod +x gradlew
           ./gradlew assembleRelease \
             -Pandroid.injected.signing.store.file=$(pwd)/android.keystore \
@@ -95,10 +105,15 @@ jobs:
             -Pandroid.injected.signing.key.alias=android \
             -Pandroid.injected.signing.key.password=crispro941
 
-          # 8. Renombrar y Subir
-          FILE_NAME=$(echo "$APP_NAME" | sed 's/ /_/g')-v${V_NAME}.apk
-          find . -name "*release.apk" -exec cp {} app.apk \;
+          # 9. Renombrar y Subir
+          SAFE_NAME=$(echo "$APP_NAME" | sed 's/ /_/g')
+          FILE_NAME="${SAFE_NAME}-v${V_NAME}.apk"
           
+          # Buscar el APK generado y copiarlo a la raiz
+          APK_PATH=$(find . -name "*release.apk" | head -n 1)
+          cp "$APK_PATH" app.apk
+          
+          echo "Subiendo APK: $FILE_NAME"
           curl -f -X POST \
             -F "file=@app.apk" \
             "https://demo.crispro941.cl/apk/v2/upload_apk.php?key=CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024&name=$FILE_NAME"
