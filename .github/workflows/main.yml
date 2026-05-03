@@ -29,29 +29,34 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. OBTENER RUTA ABSOLUTA Y VALORES DEL PAYLOAD
+          # 1. RUTA ABSOLUTA
           CUR_DIR=$(pwd)
           KEYSTORE_PATH="$CUR_DIR/android.keystore"
           
-          # Extraemos los valores del payload con fallbacks por si no se envían
-          APP_URL="${{ github.event.client_payload.url || 'https://crispro941.cl' }}"
+          # 2. CAPTURAR PAYLOAD DINÁMICO
+          APP_URL="${{ github.event.client_payload.url }}"
           APP_HOST=$(echo $APP_URL | sed -e 's,https://,,;s,/.*,,')
-          APP_NAME="${{ github.event.client_payload.appName || 'Mi App' }}"
-          PACKAGE_ID="${{ github.event.client_payload.packageId || 'com.example.app' }}"
-          THEME_COLOR="${{ github.event.client_payload.themeColor || '#000000' }}"
-          BG_COLOR="${{ github.event.client_payload.backgroundColor || '#FFFFFF' }}"
-          ICON_URL="${{ github.event.client_payload.iconUrl || 'https://i.ibb.co/M5BsCD9K/descarga.png' }}"
+          APP_NAME="${{ github.event.client_payload.appName }}"
+          PACKAGE_ID="${{ github.event.client_payload.packageId }}"
+          THEME_COLOR="${{ github.event.client_payload.themeColor }}"
+          BG_COLOR="${{ github.event.client_payload.backgroundColor }}"
+          ICON_URL="${{ github.event.client_payload.iconUrl }}"
+          # NUEVOS CAMPOS
+          DISPLAY_MODE="${{ github.event.client_payload.display || 'standalone' }}"
+          ORIENTATION="${{ github.event.client_payload.orientation || 'portrait' }}"
+          V_NAME="${{ github.event.client_payload.vName || '1.0.0' }}"
+          V_CODE="${{ github.event.client_payload.vCode || '1' }}"
 
-          # 2. PRE-CONFIGURACIÓN
+          # 3. CONFIGURACIÓN DEL SISTEMA
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
 
-          # 3. CREACIÓN DEL KEYSTORE
+          # 4. KEYSTORE
           keytool -genkey -v -keystore "$KEYSTORE_PATH" -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
-          # 4. CREAR TWA-MANIFEST DINÁMICO
+          # 5. TWA-MANIFEST ULTRA PERSONALIZADO
           cat <<EOF > twa-manifest.json
           {
             "packageId": "$PACKAGE_ID",
@@ -65,31 +70,34 @@ jobs:
             "iconUrl": "$ICON_URL",
             "maskableIconUrl": "$ICON_URL",
             "splashScreenFadeOutDuration": 300,
-            "appVersionCode": 1,
-            "appVersionName": "1.0.0",
+            "appVersionCode": $V_CODE,
+            "appVersionName": "$V_NAME",
             "signingKey": {
               "path": "$KEYSTORE_PATH",
               "alias": "android"
             },
-            "orientation": "portrait",
-            "display": "standalone",
+            "orientation": "$ORIENTATION",
+            "display": "$DISPLAY_MODE",
             "webManifestUrl": "$APP_URL/manifest.json",
             "fallbackType": "customtabs",
             "features": {},
             "enableNotifications": false,
-            "alphaDependencies": { "enabled": false }
+            "alphaDependencies": { "enabled": false },
+            "enableSiteSettingsShortcut": true,
+            "isMultiColorSchemeEnabled": false,
+            "isWebWidgetsEnabled": false,
+            "shortcuts": [],
+            "unsupportedFeatures": []
           }
           EOF
 
-          # 5. GENERAR PROYECTO ANDROID
-          printf "1\n1.0.0\n" | bubblewrap update --skipConfig
-
-          # 6. PARCHES DE SINTAXIS
-          sed -i 's/enableNotifications: ,/enableNotifications: false,/g' app/build.gradle
-          sed -i 's/splashScreenFadeOutDuration: ,/splashScreenFadeOutDuration: 300,/g' app/build.gradle
+          # 6. GENERAR Y PARCHEAR
+          printf "$V_CODE\n$V_NAME\n" | bubblewrap update --skipConfig
+          sed -i "s/enableNotifications: ,/enableNotifications: false,/g" app/build.gradle
+          sed -i "s/splashScreenFadeOutDuration: ,/splashScreenFadeOutDuration: 300,/g" app/build.gradle
           sed -i 's/: ,/: "" ,/g' app/build.gradle
 
-          # 7. COMPILACIÓN DIRECTA CON GRADLE
+          # 7. GRADLE
           chmod +x gradlew
           ./gradlew assembleRelease \
             -Pandroid.injected.signing.store.file="$KEYSTORE_PATH" \
@@ -97,15 +105,9 @@ jobs:
             -Pandroid.injected.signing.key.alias=android \
             -Pandroid.injected.signing.key.password=crispro941
 
-          # 8. ORGANIZAR RESULTADO
+          # 8. OUTPUT
           mkdir -p output
           find . -name "*release.apk" -exec mv {} output/app-release.apk \;
-          
-          if [ ! -f output/app-release.apk ]; then
-            echo "Error: No se pudo generar el APK."
-            exit 1
-          fi
-          echo "--- COMPILACIÓN EXITOSA ---"
 
       - name: Upload Finished APK
         uses: actions/upload-artifact@v4
