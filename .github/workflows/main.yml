@@ -29,42 +29,36 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. CONFIGURACIÓN FORZADA (Sin comandos interactivos)
+          # 1. PRE-CONFIGURACIÓN (Rutas de GitHub Actions)
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
           
-          # Verificar que las rutas existen (debug)
-          ls -d $JAVA_HOME
-          ls -d $ANDROID_HOME
-
           # 2. CREACIÓN DEL KEYSTORE
+          # Importante: lo creamos en la raíz del proyecto
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
           # 3. INICIALIZAR PROYECTO
-          # Usamos un 'printf' exacto para responder a CADA pregunta de Bubblewrap.
-          # n -> ¿Instalar JDK? No
-          # n -> ¿Instalar SDK? No
-          # El resto son los campos del manifiesto y la app.
-          
-          echo "Generando configuración para: ${{ github.event.client_payload.url }}"
-          
-          printf "n\nn\n${{ github.event.client_payload.url }}\n/\nCRISPRO941\nCRISPRO941\ncl.crispro941.twa\n1\nstandalone\nportrait\n#000000\n#FFFFFF\nhttps://i.ibb.co/M5BsCD9K/descarga.png\nhttps://i.ibb.co/M5BsCD9K/descarga.png\n\nn\nn\n./android.keystore\nandroid\n" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig
+          # 'yes ""' envía "Enter" infinitamente. 
+          # Como ya configuramos el SDK y el Keystore existe, Bubblewrap tomará todo por defecto.
+          echo "Iniciando generación para: ${{ github.event.client_payload.url }}"
+          yes "" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig || true
 
-          # 4. INYECTAR CONTRASEÑAS PARA BUILD SILENCIOSO
+          # 4. INYECTAR FIRMA PARA EL BUILD
+          # Esto evita que el comando 'build' pregunte por la contraseña
           echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"android\"}" > bubblewrap.json
 
-          # 5. COMPILACIÓN
-          # --yes acepta los términos de licencia de Android automáticamente
+          # 5. COMPILACIÓN FINAL
+          # --yes acepta las licencias de Android automáticamente
           bubblewrap build --yes --skipCheck
 
-          # 6. MOVER RESULTADO
+          # 6. ORGANIZAR RESULTADOS
           mkdir -p output
           find . -name "*.apk" -exec mv {} output/ \;
           
           if [ -z "$(ls -A output)" ]; then
-            echo "Error: No se generó el APK."
+            echo "Error: No se encontró el archivo APK generado."
             exit 1
           fi
 
