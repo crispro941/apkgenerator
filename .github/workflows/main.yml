@@ -28,24 +28,23 @@ jobs:
         run: npm install -g @bubblewrap/cli
 
       - name: Build APK from URL
-        # Usamos printf para responder automáticamente a cualquier pregunta extra del CLI
         run: |
-          echo "Generando APK para: ${{ github.event.client_payload.url }}"
+          echo "Iniciando generación para: ${{ github.event.client_payload.url }}"
           
-          # Configuramos Bubblewrap para que sepa dónde está el JDK y el Android SDK sin preguntar
-          # Esto evita el error 130
-          bubblewrap doctor --skipPathUpdate <<EOF
-          n
-          $JAVA_HOME
-          $ANDROID_HOME
-          EOF
+          # 1. Pre-configuramos Bubblewrap de forma no interactiva
+          # Enviamos: 'n' (no instalar JDK), luego la ruta del JDK, luego la ruta del SDK
+          printf "n\n$JAVA_HOME\n$ANDROID_HOME\n" | bubblewrap doctor
 
-          # Inicialización y build forzado
-          bubblewrap init --url=${{ github.event.client_payload.url }} --yes
+          # 2. Inicializamos el proyecto
+          # Usamos 'yes' para responder 'y' a todas las preguntas de confirmación
+          yes | bubblewrap init --url=${{ github.event.client_payload.url }} --yes
+
+          # 3. Construimos el APK
           bubblewrap build --yes
-          
+
+          # 4. Organizamos la salida
           mkdir -p output
-          mv *.apk output/
+          mv *.apk output/ || echo "No se encontró el APK en la raíz"
 
       - name: Upload Finished APK
         uses: actions/upload-artifact@v4
