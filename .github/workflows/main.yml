@@ -32,7 +32,7 @@ jobs:
 
       - name: Build APK
         run: |
-          # 1. Variables del Payload
+          # 1. Cargar variables del payload
           APP_URL="${{ github.event.client_payload.url }}"
           MANIFEST_URL="${{ github.event.client_payload.manifestUrl }}"
           APP_NAME="${{ github.event.client_payload.appName }}"
@@ -42,23 +42,22 @@ jobs:
           V_NAME="${{ github.event.client_payload.vName || '1.0.0' }}"
           V_CODE="${{ github.event.client_payload.vCode || '1' }}"
 
-          # 2. Limpieza de HOST (vital para Bubblewrap)
+          # 2. Limpieza de HOST (Vital para evitar el error "Invalid URL")
+          # Elimina protocolos y paths. Ejemplo: https://sitio.com/app -> sitio.com
           APP_HOST=$(echo "$APP_URL" | sed -e 's|^[^/]*//||' -e 's|/.*$||')
 
-          # 3. TRUCO: Descargar el icono localmente
-          # Si la URL falla (404), usamos un icono por defecto para que el build no se detenga.
+          # 3. Descargar ícono localmente para asegurar el build
           curl -L -s -o local_icon.png "$ICON_URL" || curl -L -s -o local_icon.png "https://via.placeholder.com/512.png"
 
-          # 4. Configurar Bubblewrap
+          # 4. Configuración interna de Bubblewrap
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
 
-          # 5. Generar Keystore
+          # 5. Generar Keystore para firmar el APK
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" -dname "CN=Crispro, O=Studio, C=CL"
 
-          # 6. Generar twa-manifest.json
-          # Usamos la ruta local del icono para evitar el error "Invalid URL"
+          # 6. Crear el archivo de configuración para Bubblewrap (twa-manifest.json)
           cat <<EOF > twa-manifest.json
           {
             "packageId": "$PKG_ID",
@@ -83,19 +82,20 @@ jobs:
           }
           EOF
 
-          # 7. Inicializar y Construir (Usando tu lógica anterior que funcionaba)
-          # 'yes' para las preguntas interactivas
+          # 7. Inicializar proyecto en la raíz actual
+          # Usamos 'yes' para responder "Y" a la creación de carpetas
+          # '|| true' evita que el workflow se detenga si Bubblewrap da un aviso menor
           yes | bubblewrap init --manifest twa-manifest.json --directory . --skipProxy || true
           
-          # Si el paso anterior falló por la URL del manifest remoto, forzamos la actualización local
+          # Forzar actualización de versión si el init falló en algún campo
           printf "1\n$V_NAME\n" | bubblewrap update --skipConfig
 
-          # 8. Aplicar parches de Gradle
+          # 8. Parche para compatibilidad de Gradle
           if [ -f app/build.gradle ]; then
             sed -i 's/: ,/: "" ,/g' app/build.gradle
           fi
 
-          # 9. Compilar
+          # 9. Compilación final con Gradle
           chmod +x gradlew
           ./gradlew assembleRelease \
             -Pandroid.injected.signing.store.file=$(pwd)/android.keystore \
@@ -103,14 +103,15 @@ jobs:
             -Pandroid.injected.signing.key.alias=android \
             -Pandroid.injected.signing.key.password=crispro941
 
-          # 10. Renombrar y subir a tu servidor
+          # 10. Renombrar y Subir el resultado a tu servidor
           SAFE_NAME=$(echo "$APP_NAME" | sed 's/ /_/g')
           FILE_NAME="${SAFE_NAME}-v${V_NAME}.apk"
           
-          APK_PATH=$(find . -name "*release.apk" | head -n 1)
+          # Buscamos el APK firmado generado
+          APK_PATH=$(find . -name "*release-signed.apk" -o -name "*release.apk" | head -n 1)
           cp "$APK_PATH" app.apk
           
-          echo "Subiendo a: downloads/$FILE_NAME"
+          # Enviar de vuelta a upload_apk.php (usando tu estructura de carpetas)
           curl -f -X POST \
             -F "file=@app.apk" \
             "https://demo.crispro941.cl/apk/v2/upload_apk.php?key=CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024&name=$FILE_NAME"
