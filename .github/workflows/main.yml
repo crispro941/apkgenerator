@@ -29,42 +29,44 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. IDENTIFICAR RUTAS REALES
-          # En GitHub Actions, ANDROID_HOME suele estar en /usr/local/lib/android/sdk
-          export ANDROID_SDK_PATH=$ANDROID_HOME
-          export JDK_PATH=$JAVA_HOME
+          # 1. CONFIGURACIÓN FORZADA (Sin comandos interactivos)
+          mkdir -p ~/.bubblewrap
+          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
           
-          echo "Usando SDK: $ANDROID_SDK_PATH"
-          echo "Usando JDK: $JDK_PATH"
+          # Verificar que las rutas existen (debug)
+          ls -d $JAVA_HOME
+          ls -d $ANDROID_HOME
 
-          # 2. CONFIGURACIÓN FORMAL DE BUBBLEWRAP
-          # En lugar de escribir el JSON a mano, usamos el comando oficial
-          bubblewrap config set jdkPath "$JDK_PATH"
-          bubblewrap config set androidSdkPath "$ANDROID_SDK_PATH"
-
-          # 3. CREACIÓN DEL KEYSTORE
+          # 2. CREACIÓN DEL KEYSTORE
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
-          # 4. INICIALIZAR PROYECTO
-          # Usamos un archivo temporal para responder a las preguntas de Bubblewrap de forma segura
+          # 3. INICIALIZAR PROYECTO
+          # Usamos un 'printf' exacto para responder a CADA pregunta de Bubblewrap.
+          # n -> ¿Instalar JDK? No
+          # n -> ¿Instalar SDK? No
+          # El resto son los campos del manifiesto y la app.
+          
           echo "Generando configuración para: ${{ github.event.client_payload.url }}"
           
-          # El comando 'init' de Bubblewrap es interactivo. 
-          # Esta secuencia de 'echo' responde a las preguntas básicas (Domain, Path, Names, etc.)
-          (echo "${{ github.event.client_payload.url }}"; echo "/"; echo "CRISPRO941 App"; echo "CRISPRO941"; echo "cl.crispro941.twa"; echo "1"; echo "standalone"; echo "portrait"; echo "#000000"; echo "#FFFFFF"; echo "https://i.ibb.co/M5BsCD9K/descarga.png"; echo "https://i.ibb.co/M5BsCD9K/descarga.png"; echo ""; echo "n"; echo "n"; echo "./android.keystore"; echo "android") | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig
+          printf "n\nn\n${{ github.event.client_payload.url }}\n/\nCRISPRO941\nCRISPRO941\ncl.crispro941.twa\n1\nstandalone\nportrait\n#000000\n#FFFFFF\nhttps://i.ibb.co/M5BsCD9K/descarga.png\nhttps://i.ibb.co/M5BsCD9K/descarga.png\n\nn\nn\n./android.keystore\nandroid\n" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig
 
-          # 5. INYECTAR CONTRASEÑAS PARA BUILD
+          # 4. INYECTAR CONTRASEÑAS PARA BUILD SILENCIOSO
           echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"android\"}" > bubblewrap.json
 
-          # 6. COMPILACIÓN
-          # --skipCheck es para que no intente descargar el SDK de nuevo
+          # 5. COMPILACIÓN
+          # --yes acepta los términos de licencia de Android automáticamente
           bubblewrap build --yes --skipCheck
 
-          # 7. MOVER RESULTADO
+          # 6. MOVER RESULTADO
           mkdir -p output
           find . -name "*.apk" -exec mv {} output/ \;
+          
+          if [ -z "$(ls -A output)" ]; then
+            echo "Error: No se generó el APK."
+            exit 1
+          fi
 
       - name: Upload Finished APK
         uses: actions/upload-artifact@v4
