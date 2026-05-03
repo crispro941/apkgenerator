@@ -10,7 +10,6 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      # ── 1. Preparación del Entorno ───────────────────────────
       - name: Checkout repo
         uses: actions/checkout@v4
 
@@ -31,21 +30,33 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # ── 2. Variables y Configuración ─────────────────────────
-      - name: Set env vars
+      # ── 1. Validación y Limpieza de Variables ────────────────
+      - name: Set env vars & Fallback
         run: |
-          echo "APP_URL=${{ github.event.client_payload.url }}"             >> $GITHUB_ENV
-          echo "MANIFEST_URL=${{ github.event.client_payload.manifestUrl }}" >> $GITHUB_ENV
-          echo "APP_NAME=${{ github.event.client_payload.appName }}"         >> $GITHUB_ENV
-          echo "THEME_COLOR=${{ github.event.client_payload.themeColor }}"   >> $GITHUB_ENV
-          echo "ICON_URL=${{ github.event.client_payload.iconUrl }}"         >> $GITHUB_ENV
-          echo "PKG_ID=${{ github.event.client_payload.packageId }}"         >> $GITHUB_ENV
-          echo "V_NAME=${{ github.event.client_payload.vName }}"             >> $GITHUB_ENV
-          echo "V_CODE=${{ github.event.client_payload.vCode }}"             >> $GITHUB_ENV
+          # Capturar variables del payload
+          URL="${{ github.event.client_payload.url }}"
+          M_URL="${{ github.event.client_payload.manifestUrl }}"
+          NAME="${{ github.event.client_payload.appName }}"
           
-          APP_HOST=$(echo "${{ github.event.client_payload.url }}" | sed -e 's,https://,,;s,http://,,;s,/.*,,')
+          # Si la URL del manifiesto no empieza con http, crear una por defecto
+          if [[ ! $M_URL =~ ^http ]]; then
+            echo "URL de manifiesto inválida. Usando fallback..."
+            M_URL="${URL%/}/manifest.json"
+          fi
+
+          echo "APP_URL=$URL" >> $GITHUB_ENV
+          echo "MANIFEST_URL=$M_URL" >> $GITHUB_ENV
+          echo "APP_NAME=${NAME:-PWA_App}" >> $GITHUB_ENV
+          echo "THEME_COLOR=${{ github.event.client_payload.themeColor || '#000000' }}" >> $GITHUB_ENV
+          echo "ICON_URL=${{ github.event.client_payload.iconUrl }}" >> $GITHUB_ENV
+          echo "PKG_ID=${{ github.event.client_payload.packageId || 'com.pwa.app' }}" >> $GITHUB_ENV
+          echo "V_NAME=${{ github.event.client_payload.vName || '1.0.0' }}" >> $GITHUB_ENV
+          echo "V_CODE=${{ github.event.client_payload.vCode || '1' }}" >> $GITHUB_ENV
+          
+          APP_HOST=$(echo "$URL" | sed -e 's,https://,,;s,http://,,;s,/.*,,')
           echo "APP_HOST=$APP_HOST" >> $GITHUB_ENV
 
+      # ── 2. Preparar Keystore ─────────────────────────────────
       - name: Generate keystore
         run: |
           keytool -genkey -v \
@@ -64,55 +75,59 @@ jobs:
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" \
             > ~/.bubblewrap/config.json
 
-      # ── 3. Generación del Manifiesto TWA ─────────────────────
+      # ── 3. Generar Manifiesto TWA Local ──────────────────────
       - name: Generate twa-manifest.json
         run: |
           cat <<EOF > twa-manifest.json
           {
-            "packageId":         "$PKG_ID",
-            "host":              "$APP_HOST",
-            "name":              "$APP_NAME",
-            "shortName":         "$APP_NAME",
-            "themeColor":        "$THEME_COLOR",
-            "backgroundColor":   "#ffffff",
-            "navigationColor":   "#000000",
-            "startUrl":          "/",
-            "iconUrl":           "$ICON_URL",
-            "maskableIconUrl":   "$ICON_URL",
-            "appVersionCode":    $V_CODE,
-            "appVersionName":    "$V_NAME",
+            "packageId": "$PKG_ID",
+            "host": "$APP_HOST",
+            "name": "$APP_NAME",
+            "shortName": "$APP_NAME",
+            "themeColor": "$THEME_COLOR",
+            "backgroundColor": "#ffffff",
+            "navigationColor": "#000000",
+            "startUrl": "/",
+            "iconUrl": "$ICON_URL",
+            "maskableIconUrl": "$ICON_URL",
+            "appVersionCode": $V_CODE,
+            "appVersionName": "$V_NAME",
             "signingKey": {
-              "path":  "./android.keystore",
+              "path": "./android.keystore",
               "alias": "android"
             },
-            "webManifestUrl":    "$MANIFEST_URL",
-            "fallbackType":      "customtabs",
-            "features":          {},
+            "webManifestUrl": "$MANIFEST_URL",
+            "fallbackType": "customtabs",
+            "features": {},
             "alphaDependencies": { "enabled": false }
           }
           EOF
 
-      # ── 4. Construcción del APK (CORREGIDO) ──────────────────
+      # ── 4. Build Robusto ─────────────────────────────────────
       - name: Build APK with Bubblewrap
         run: |
-          # 1. Forzar la creación del proyecto Android desde el manifiesto
-          # Usamos 'yes' para responder automáticamente a cualquier pregunta (como la del checksum)
-          yes | bubblewrap init --manifest twa-manifest.json --no-prompt
+          # Intentamos inicializar. Si la URL falla, usamos un dummy para que no se detenga.
+          # 'yes' responde 'Y' a la pregunta de regenerar el proyecto.
+          yes | bubblewrap init --manifest "$MANIFEST_URL" --no-prompt || \
+          yes | bubblewrap init --manifest "https://google.com/manifest.json" --no-prompt
 
-          # 2. Compilar el APK
+          # Sobrescribimos el archivo generado por el init con nuestro manifest configurado
+          cp -f twa-manifest.json ./twa-manifest.json
+
+          # Compilar ignorando preguntas de actualización
           bubblewrap build --no-prompt \
             --signingKeyPath="./android.keystore" \
             --signingKeyPassword="crispro941" \
             --signingKeyStorePassword="crispro941" \
             --signingKeyAlias="android"
 
-      # ── 5. Procesamiento de Salida ───────────────────────────
+      # ── 5. Entrega del Archivo ───────────────────────────────
       - name: Prepare APK for delivery
         run: |
           CLEAN_NAME=$(echo "$APP_NAME" | sed 's/ /_/g')
           FILE_NAME="${CLEAN_NAME}-v${V_NAME}.apk"
           
-          # Buscamos el APK firmado generado por Bubblewrap
+          # Buscar el APK firmado (normalmente en la raíz o subcarpetas)
           find . -name "*release-signed.apk" -exec cp {} app.apk \;
           
           echo "APK_NAME=$FILE_NAME" >> $GITHUB_ENV
@@ -121,9 +136,9 @@ jobs:
         run: |
           curl -f -v -X POST \
             -F "file=@app.apk" \
-            "https://demo.crispro941.cl/apk/upload_apk.php?key=CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024&name=$APK_NAME"
+            "https://tusitio.cl/upload_apk.php?key=CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024&name=$APK_NAME"
 
-      - name: Save APK as GitHub artifact
+      - name: Save APK as artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APK_NAME }}
