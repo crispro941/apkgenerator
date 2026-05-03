@@ -29,33 +29,41 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. OBTENER RUTA ABSOLUTA DEL TRABAJO
-          # Esto nos permite decirle a Gradle exactamente dónde está la llave
+          # 1. OBTENER RUTA ABSOLUTA Y VALORES DEL PAYLOAD
           CUR_DIR=$(pwd)
           KEYSTORE_PATH="$CUR_DIR/android.keystore"
+          
+          # Extraemos los valores del payload con fallbacks por si no se envían
+          APP_URL="${{ github.event.client_payload.url || 'https://crispro941.cl' }}"
+          APP_HOST=$(echo $APP_URL | sed -e 's,https://,,;s,/.*,,')
+          APP_NAME="${{ github.event.client_payload.appName || 'Mi App' }}"
+          PACKAGE_ID="${{ github.event.client_payload.packageId || 'com.example.app' }}"
+          THEME_COLOR="${{ github.event.client_payload.themeColor || '#000000' }}"
+          BG_COLOR="${{ github.event.client_payload.backgroundColor || '#FFFFFF' }}"
+          ICON_URL="${{ github.event.client_payload.iconUrl || 'https://i.ibb.co/M5BsCD9K/descarga.png' }}"
 
-          # 2. PRE-CONFIGURACIÓN DE RUTAS
+          # 2. PRE-CONFIGURACIÓN
           mkdir -p ~/.bubblewrap
-          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\",\"lastCheckForUpdates\":$(date +%s%3N)}" > ~/.bubblewrap/config.json
+          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
 
-          # 3. CREACIÓN DEL KEYSTORE (FIRMA)
+          # 3. CREACIÓN DEL KEYSTORE
           keytool -genkey -v -keystore "$KEYSTORE_PATH" -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
-          # 4. CREAR EL ARCHIVO TWA-MANIFEST
+          # 4. CREAR TWA-MANIFEST DINÁMICO
           cat <<EOF > twa-manifest.json
           {
-            "packageId": "cl.crispro941.twa",
-            "host": "crispro941.cl",
-            "name": "CRISPRO941",
-            "shortName": "CRISPRO941",
-            "themeColor": "#000000",
-            "navigationColor": "#000000",
-            "backgroundColor": "#ffffff",
+            "packageId": "$PACKAGE_ID",
+            "host": "$APP_HOST",
+            "name": "$APP_NAME",
+            "shortName": "$APP_NAME",
+            "themeColor": "$THEME_COLOR",
+            "navigationColor": "$THEME_COLOR",
+            "backgroundColor": "$BG_COLOR",
             "startUrl": "/",
-            "iconUrl": "https://i.ibb.co/M5BsCD9K/descarga.png",
-            "maskableIconUrl": "https://i.ibb.co/M5BsCD9K/descarga.png",
+            "iconUrl": "$ICON_URL",
+            "maskableIconUrl": "$ICON_URL",
             "splashScreenFadeOutDuration": 300,
             "appVersionCode": 1,
             "appVersionName": "1.0.0",
@@ -65,34 +73,23 @@ jobs:
             },
             "orientation": "portrait",
             "display": "standalone",
-            "webManifestUrl": "https://crispro941.cl/manifest.json",
+            "webManifestUrl": "$APP_URL/manifest.json",
             "fallbackType": "customtabs",
-            "features": {
-                "locationDelegation": { "enabled": false },
-                "playBilling": { "enabled": false }
-            },
+            "features": {},
             "enableNotifications": false,
-            "alphaDependencies": { "enabled": false },
-            "enableSiteSettingsShortcut": true,
-            "isMultiColorSchemeEnabled": false,
-            "isWebWidgetsEnabled": false,
-            "shortcuts": [],
-            "unsupportedFeatures": []
+            "alphaDependencies": { "enabled": false }
           }
           EOF
 
           # 5. GENERAR PROYECTO ANDROID
-          echo "Generando estructura del proyecto..."
           printf "1\n1.0.0\n" | bubblewrap update --skipConfig
 
-          # 6. PARCHES DE SINTAXIS (Global)
-          echo "Aplicando parches de seguridad al código..."
+          # 6. PARCHES DE SINTAXIS
           sed -i 's/enableNotifications: ,/enableNotifications: false,/g' app/build.gradle
           sed -i 's/splashScreenFadeOutDuration: ,/splashScreenFadeOutDuration: 300,/g' app/build.gradle
           sed -i 's/: ,/: "" ,/g' app/build.gradle
 
-          # 7. COMPILACIÓN DIRECTA CON GRADLE (Usando ruta absoluta para la firma)
-          echo "Iniciando compilación con Gradle..."
+          # 7. COMPILACIÓN DIRECTA CON GRADLE
           chmod +x gradlew
           ./gradlew assembleRelease \
             -Pandroid.injected.signing.store.file="$KEYSTORE_PATH" \
