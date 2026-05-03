@@ -21,7 +21,7 @@ jobs:
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          node-version: '17'
           distribution: 'temurin'
 
       - name: Install Bubblewrap CLI
@@ -29,31 +29,35 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. Configuración silenciosa de rutas (JDK y Android SDK)
+          # 1. Configuración de rutas
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
           
-          # 2. Inicialización del proyecto PWA
-          # 'yes ""' inyecta ENTERS automáticos para responder a Domain, URL path, etc.
-          # '--skipConfig' le dice que use valores predeterminados siempre que sea posible.
+          # 2. Inicialización del proyecto (init)
           echo "Generando configuración para: ${{ github.event.client_payload.url }}"
           yes "" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig || true
           
-          # 3. Compilación del binario APK
-          # 'yes' (sin comillas) envía la letra 'y' para aceptar licencias de Android automáticamente.
-          # '--yes' confirma las acciones de Bubblewrap.
+          # 3. CREACIÓN AUTOMÁTICA DEL KEYSTORE (Para evitar el bucle infinito)
+          # Esto genera una llave de firma para que Bubblewrap no la pida interactivamente
+          keytool -genkey -v -keystore android.keystore -alias androidlegacy -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "crispro941" -keypass "crispro941" \
+            -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
+
+          # 4. Configurar Bubblewrap para que use esta llave automáticamente
+          # Creamos el archivo de huellas/firmas para que no pregunte
+          echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"androidlegacy\"}" > bubblewrap.json
+
+          # 5. Compilación del APK
+          # Ahora que ya tiene la llave y las contraseñas, no hará preguntas
           yes | bubblewrap build --yes
           
-          # 4. Organización de archivos para el artefacto de descarga
+          # 6. Organización de archivos
           mkdir -p output
-          
-          # Buscamos el APK en la raíz o en la carpeta de build estándar de Android
           mv *.apk output/ 2>/dev/null || true
           mv app/build/outputs/apk/release/*.apk output/ 2>/dev/null || true
           
-          # Verificación: Si no hay archivos en output, forzamos el fallo del job
           if [ -z "$(ls -A output)" ]; then
-            echo "Error crítico: No se encontró el archivo APK generado."
+            echo "Error: No se generó el APK."
             exit 1
           fi
 
