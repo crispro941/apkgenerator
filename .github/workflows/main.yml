@@ -96,13 +96,16 @@ jobs:
           }
           EOF
 
-      # ── Init & Build ─────────────────────────────────────────
+      # ── Init & Build (Versión no interactiva) ────────────────
       - name: Bubblewrap Init and Build
         run: |
-          # 1. Inicializar el proyecto en una carpeta específica para no perder el rastro
-          bubblewrap init --manifest twa-manifest.json --directory ./android-project --skipProxy
+          # 1. Crear la carpeta manualmente para evitar la primera pregunta
+          mkdir -p android-project
           
-          # 2. Entrar a la carpeta y construir usando bubblewrap (esto maneja el gradlew automáticamente)
+          # 2. Usar 'yes' para responder automáticamente a cualquier otra confirmación
+          yes | bubblewrap init --manifest twa-manifest.json --directory ./android-project --skipProxy
+          
+          # 3. Entrar y construir
           cd android-project
           bubblewrap build \
             --signingKeyPath ../android.keystore \
@@ -111,13 +114,12 @@ jobs:
             --signingStorePassword "crispro941" \
             --skipProxy
           
-          # 3. Mover el APK generado a la raíz para los siguientes pasos
-          mv ./app-release-signed.apk ../app.apk
+          # 4. Mover el APK final (el que está firmado) a la raíz
+          cp ./app-release-signed.apk ../app.apk
 
       # ── Renombrar y subir ────────────────────────────────────
       - name: Rename and Upload
         run: |
-          # Formatear nombre: Reemplazar espacios por guiones bajos
           FILE_NAME=$(echo "$APP_NAME" | sed 's/ /_/g')-v${V_NAME}.apk
           echo "APK_NAME=$FILE_NAME" >> $GITHUB_ENV
           
@@ -125,7 +127,7 @@ jobs:
             -F "file=@app.apk" \
             "https://demo.crispro941.cl/apk/v2/upload_apk.php?key=CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024&name=$FILE_NAME"
 
-      # ── Guardar APK como artifact de GitHub (opcional) ───────
+      # ── Guardar APK como artifact ────────────────────────────
       - name: Save APK as GitHub artifact
         uses: actions/upload-artifact@v4
         with:
