@@ -29,23 +29,25 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. Configurar rutas forzando "No" a la instalación automática
-          # Usamos 'echo n' para decirle que NO instale su propio JDK
-          echo "n" | bubblewrap doctor --jdkPath="$JAVA_HOME" --androidSdkPath="$ANDROID_HOME"
+          # 1. Configurar Bubblewrap SIN preguntas interactivas
+          # Usamos el comando 'config' para establecer las rutas directamente
+          bubblewrap config --jdkPath "$JAVA_HOME" --androidSdkPath "$ANDROID_HOME"
           
-          # 2. Crear Keystore antes del init
+          # 2. Crear Keystore antes del init (Firma de CRISPRO941)
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
           # 3. Inicializar el proyecto
+          # El flag --skipConfig es clave aquí
           echo "Generando configuración para: ${{ github.event.client_payload.url }}"
           yes "" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig || true
           
-          # 4. Crear archivo de firma para build silencioso
+          # 4. Crear archivo de contraseñas para el build silencioso
           echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"android\"}" > bubblewrap.json
 
           # 5. Compilación final
+          # --skipCheck evita que vuelva a pedir rutas de SDK/JDK
           bubblewrap build --yes --skipCheck
           
           # 6. Mover APK a salida
