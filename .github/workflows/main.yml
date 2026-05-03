@@ -29,36 +29,42 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. PRE-CONFIGURACIÓN (Rutas de GitHub Actions)
+          # 1. INSTALAR DEPENDENCIAS EXTRA (Para asegurar compatibilidad)
+          sudo apt-get update && sudo apt-get install -y expect
+
+          # 2. CONFIGURACIÓN DEL ENTORNO
+          # Creamos el config.json con las rutas exactas del runner
           mkdir -p ~/.bubblewrap
-          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
+          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\",\"lastCheckForUpdates\":$(date +%s%3N)}" > ~/.bubblewrap/config.json
           
-          # 2. CREACIÓN DEL KEYSTORE
-          # Importante: lo creamos en la raíz del proyecto
+          # 3. ACEPTAR LICENCIAS DE ANDROID (Vital para que 'build' no falle)
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+          # 4. CREACIÓN DEL KEYSTORE
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
-          # 3. INICIALIZAR PROYECTO
-          # 'yes ""' envía "Enter" infinitamente. 
-          # Como ya configuramos el SDK y el Keystore existe, Bubblewrap tomará todo por defecto.
-          echo "Iniciando generación para: ${{ github.event.client_payload.url }}"
-          yes "" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig || true
+          # 5. INICIALIZAR PROYECTO
+          # Usamos un archivo de respuestas para evitar el Broken Pipe y asegurar que tome los valores correctos
+          echo "Generando proyecto para: ${{ github.event.client_payload.url }}"
+          
+          # Respuestas: URL, Path, Name, ShortName, AppID, Version, Display, Orientation, StatusColor, SplashColor, Icon, MaskableIcon, Monochrome, Shortcuts, PlayBilling, Geolocation, KeystorePath, KeyAlias
+          printf "${{ github.event.client_payload.url }}\n/\nCRISPRO941\nCRISPRO941\ncl.crispro941.twa\n1\nstandalone\nportrait\n#000000\n#FFFFFF\nhttps://i.ibb.co/M5BsCD9K/descarga.png\nhttps://i.ibb.co/M5BsCD9K/descarga.png\n\nn\nn\nn\n./android.keystore\nandroid\n" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig
 
-          # 4. INYECTAR FIRMA PARA EL BUILD
-          # Esto evita que el comando 'build' pregunte por la contraseña
+          # 6. INYECTAR CONTRASEÑAS PARA FIRMA
           echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"android\"}" > bubblewrap.json
 
-          # 5. COMPILACIÓN FINAL
-          # --yes acepta las licencias de Android automáticamente
+          # 7. COMPILACIÓN CON FORZADO DE SDK
+          # Usamos --yes para aceptar cualquier diálogo restante
           bubblewrap build --yes --skipCheck
 
-          # 6. ORGANIZAR RESULTADOS
+          # 8. MOVER RESULTADO
           mkdir -p output
           find . -name "*.apk" -exec mv {} output/ \;
           
           if [ -z "$(ls -A output)" ]; then
-            echo "Error: No se encontró el archivo APK generado."
+            echo "Error: El archivo APK no se encontró."
             exit 1
           fi
 
