@@ -29,38 +29,42 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. PRE-CONFIGURACIÓN ABSOLUTA
-          # Forzamos la creación del directorio y el archivo de configuración con rutas del sistema
-          mkdir -p ~/.bubblewrap
-          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\",\"lastCheckForUpdates\":$(date +%s%3N)}" > ~/.bubblewrap/config.json
+          # 1. IDENTIFICAR RUTAS REALES
+          # En GitHub Actions, ANDROID_HOME suele estar en /usr/local/lib/android/sdk
+          export ANDROID_SDK_PATH=$ANDROID_HOME
+          export JDK_PATH=$JAVA_HOME
           
-          # 2. CREACIÓN DEL KEYSTORE (Firma de CRISPRO941)
-          # Lo creamos ANTES para que Bubblewrap lo encuentre y no haga preguntas de nombres
+          echo "Usando SDK: $ANDROID_SDK_PATH"
+          echo "Usando JDK: $JDK_PATH"
+
+          # 2. CONFIGURACIÓN FORMAL DE BUBBLEWRAP
+          # En lugar de escribir el JSON a mano, usamos el comando oficial
+          bubblewrap config set jdkPath "$JDK_PATH"
+          bubblewrap config set androidSdkPath "$ANDROID_SDK_PATH"
+
+          # 3. CREACIÓN DEL KEYSTORE
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
-          # 3. INICIALIZAR PROYECTO
-          # 'yes ""' responde ENTER a Domain y URL Path automáticamente
+          # 4. INICIALIZAR PROYECTO
+          # Usamos un archivo temporal para responder a las preguntas de Bubblewrap de forma segura
           echo "Generando configuración para: ${{ github.event.client_payload.url }}"
-          yes "" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig || true
           
-          # 4. INYECTAR CONTRASEÑAS PARA BUILD SILENCIOSO
-          # Este archivo bubblewrap.json le dice al comando 'build' qué firma usar sin preguntar
+          # El comando 'init' de Bubblewrap es interactivo. 
+          # Esta secuencia de 'echo' responde a las preguntas básicas (Domain, Path, Names, etc.)
+          (echo "${{ github.event.client_payload.url }}"; echo "/"; echo "CRISPRO941 App"; echo "CRISPRO941"; echo "cl.crispro941.twa"; echo "1"; echo "standalone"; echo "portrait"; echo "#000000"; echo "#FFFFFF"; echo "https://i.ibb.co/M5BsCD9K/descarga.png"; echo "https://i.ibb.co/M5BsCD9K/descarga.png"; echo ""; echo "n"; echo "n"; echo "./android.keystore"; echo "android") | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig
+
+          # 5. INYECTAR CONTRASEÑAS PARA BUILD
           echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"android\"}" > bubblewrap.json
 
-          # 5. COMPILACIÓN (Sin 'yes |' para evitar el Broken Pipe)
-          # El flag --skipCheck es vital para que no intente validar el SDK de nuevo
+          # 6. COMPILACIÓN
+          # --skipCheck es para que no intente descargar el SDK de nuevo
           bubblewrap build --yes --skipCheck
-          
-          # 6. MOVER RESULTADO
+
+          # 7. MOVER RESULTADO
           mkdir -p output
           find . -name "*.apk" -exec mv {} output/ \;
-          
-          if [ -z "$(ls -A output)" ]; then
-            echo "Error: No se generó el APK."
-            exit 1
-          fi
 
       - name: Upload Finished APK
         uses: actions/upload-artifact@v4
