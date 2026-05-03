@@ -21,7 +21,7 @@ jobs:
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          node-version: '17'
+          java-version: '17' # Corregido: antes decía node-version
           distribution: 'temurin'
 
       - name: Install Bubblewrap CLI
@@ -29,35 +29,37 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. Configuración de rutas
+          # 1. Configuración de rutas para Bubblewrap
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
           
           # 2. Inicialización del proyecto (init)
+          # 'yes ""' responde ENTER a todas las preguntas de configuración inicial
           echo "Generando configuración para: ${{ github.event.client_payload.url }}"
           yes "" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig || true
           
-          # 3. CREACIÓN AUTOMÁTICA DEL KEYSTORE (Para evitar el bucle infinito)
-          # Esto genera una llave de firma para que Bubblewrap no la pida interactivamente
+          # 3. CREACIÓN AUTOMÁTICA DEL KEYSTORE
+          # Generamos la firma digital de CRISPRO941 de forma no interactiva
           keytool -genkey -v -keystore android.keystore -alias androidlegacy -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
-          # 4. Configurar Bubblewrap para que use esta llave automáticamente
-          # Creamos el archivo de huellas/firmas para que no pregunte
+          # 4. Vincular la firma con Bubblewrap
+          # Creamos el archivo de configuración de firma para evitar el bucle de preguntas
           echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"androidlegacy\"}" > bubblewrap.json
 
           # 5. Compilación del APK
-          # Ahora que ya tiene la llave y las contraseñas, no hará preguntas
+          # 'yes' acepta las licencias de Android y '--yes' confirma la compilación
           yes | bubblewrap build --yes
           
-          # 6. Organización de archivos
+          # 6. Mover el resultado a la carpeta de salida
           mkdir -p output
           mv *.apk output/ 2>/dev/null || true
           mv app/build/outputs/apk/release/*.apk output/ 2>/dev/null || true
           
+          # Verificación final
           if [ -z "$(ls -A output)" ]; then
-            echo "Error: No se generó el APK."
+            echo "Error: No se encontró el archivo APK generado."
             exit 1
           fi
 
