@@ -1,53 +1,133 @@
 name: APK Universal Generator
+
 on:
   repository_dispatch:
     types: [build-app]
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with: { java-version: '17', distribution: 'temurin' }
-      - run: npm install -g @bubblewrap/cli
+      # ── Checkout ────────────────────────────────────────────
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-      - name: Build APK
+      # ── Java 17 ─────────────────────────────────────────────
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      # ── Node / Bubblewrap ────────────────────────────────────
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Bubblewrap
+        run: npm install -g @bubblewrap/cli
+
+      # ── Android SDK ──────────────────────────────────────────
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # ── Variables del payload ────────────────────────────────
+      - name: Set env vars
         run: |
-          CUR_DIR=$(pwd)
-          KEYSTORE_PATH="$CUR_DIR/android.keystore"
-          
-          # Datos del Payload
-          APP_URL="${{ github.event.client_payload.url }}"
-          MANIFEST_URL="${{ github.event.client_payload.manifestUrl }}"
-          APP_NAME="${{ github.event.client_payload.appName }}"
-          APP_HOST=$(echo $APP_URL | sed -e 's,https://,,;s,/.*,,')
-          ICON="${{ github.event.client_payload.iconUrl }}"
-          COLOR="${{ github.event.client_payload.themeColor }}"
+          echo "APP_URL=${{ github.event.client_payload.url }}"             >> $GITHUB_ENV
+          echo "MANIFEST_URL=${{ github.event.client_payload.manifestUrl }}" >> $GITHUB_ENV
+          echo "APP_NAME=${{ github.event.client_payload.appName }}"         >> $GITHUB_ENV
+          echo "THEME_COLOR=${{ github.event.client_payload.themeColor }}"   >> $GITHUB_ENV
+          echo "ICON_URL=${{ github.event.client_payload.iconUrl }}"         >> $GITHUB_ENV
+          echo "PKG_ID=${{ github.event.client_payload.packageId }}"         >> $GITHUB_ENV
+          echo "V_NAME=${{ github.event.client_payload.vName }}"             >> $GITHUB_ENV
+          echo "V_CODE=${{ github.event.client_payload.vCode }}"             >> $GITHUB_ENV
+          # Host sin protocolo ni path
+          APP_HOST=$(echo "${{ github.event.client_payload.url }}" | sed -e 's,https://,,;s,http://,,;s,/.*,,')
+          echo "APP_HOST=$APP_HOST" >> $GITHUB_ENV
 
+      # ── Keystore ─────────────────────────────────────────────
+      - name: Generate keystore
+        run: |
+          keytool -genkey -v \
+            -keystore android.keystore \
+            -alias android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass "crispro941" \
+            -keypass  "crispro941" \
+            -dname    "CN=Crispro, OU=Studio, O=Crispro, L=Santiago, ST=RM, C=CL"
+
+      # ── Bubblewrap config ────────────────────────────────────
+      - name: Configure Bubblewrap
+        run: |
           mkdir -p ~/.bubblewrap
-          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
-          
-          keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass "crispro941" -keypass "crispro941" -dname "CN=Crispro"
+          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" \
+            > ~/.bubblewrap/config.json
 
+      # ── TWA Manifest ─────────────────────────────────────────
+      - name: Generate twa-manifest.json
+        run: |
           cat <<EOF > twa-manifest.json
           {
-            "packageId": "cl.crispro941.twa", "host": "$APP_HOST",
-            "name": "$APP_NAME", "shortName": "$APP_NAME",
-            "themeColor": "$COLOR", "backgroundColor": "#ffffff",
-            "startUrl": "/", "iconUrl": "$ICON", "maskableIconUrl": "$ICON",
-            "appVersionCode": 1, "appVersionName": "1.0.0",
-            "signingKey": { "path": "./android.keystore", "alias": "android" },
-            "webManifestUrl": "$MANIFEST_URL",
-            "fallbackType": "customtabs", "features": {}, "alphaDependencies": { "enabled": false }
+            "packageId":         "$PKG_ID",
+            "host":              "$APP_HOST",
+            "name":              "$APP_NAME",
+            "shortName":         "$APP_NAME",
+            "themeColor":        "$THEME_COLOR",
+            "backgroundColor":   "#ffffff",
+            "navigationColor":   "#000000",
+            "startUrl":          "/",
+            "iconUrl":           "$ICON_URL",
+            "maskableIconUrl":   "$ICON_URL",
+            "appVersionCode":    $V_CODE,
+            "appVersionName":    "$V_NAME",
+            "signingKey": {
+              "path":  "./android.keystore",
+              "alias": "android"
+            },
+            "webManifestUrl":    "$MANIFEST_URL",
+            "fallbackType":      "customtabs",
+            "features":          {},
+            "alphaDependencies": { "enabled": false }
           }
           EOF
 
-          printf "1\n1.0.0\n" | bubblewrap update --skipConfig
-          sed -i 's/: ,/: "" ,/g' app/build.gradle
+      # ── Init & Build ─────────────────────────────────────────
+      - name: Bubblewrap init
+        run: printf "1\n$V_NAME\n" | bubblewrap init --manifest "$MANIFEST_URL" || true
+
+      - name: Build APK
+        run: |
           chmod +x gradlew
-          ./gradlew assembleRelease -Pandroid.injected.signing.store.file=../android.keystore -Pandroid.injected.signing.store.password=crispro941 -Pandroid.injected.signing.key.alias=android -Pandroid.injected.signing.key.password=crispro941
-          
-          FILE_NAME=$(echo "$APP_NAME" | sed 's/ /_/g')-v1.0.0.apk
-          find . -name "*release.apk" -exec mv {} app.apk \;
-          curl -X POST -F "file=@app.apk" "https://tusitio.cl/upload_apk.php?key=CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024&name=$FILE_NAME"
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file=../android.keystore \
+            -Pandroid.injected.signing.store.password=crispro941 \
+            -Pandroid.injected.signing.key.alias=android \
+            -Pandroid.injected.signing.key.password=crispro941
+
+      # ── Renombrar y subir ────────────────────────────────────
+      - name: Rename APK
+        run: |
+          FILE_NAME=$(echo "$APP_NAME" | sed 's/ /_/g')-v${V_NAME}.apk
+          find . -name "*-release.apk" -exec cp {} app.apk \;
+          echo "APK_NAME=$FILE_NAME" >> $GITHUB_ENV
+
+      - name: Upload APK to server
+        run: |
+          curl -f -X POST \
+            -F "file=@app.apk" \
+            "https://demo.crispro941.cl/apk/v2/upload_apk.php?key=CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024&name=$APK_NAME" \
+            || (echo "Upload failed" && exit 1)
+
+      # ── Guardar APK como artifact de GitHub (opcional) ───────
+      - name: Save APK as GitHub artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APK_NAME }}
+          path: app.apk
+          retention-days: 7
