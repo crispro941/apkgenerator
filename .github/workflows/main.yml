@@ -27,23 +27,26 @@ jobs:
       - name: Install Bubblewrap CLI
         run: npm install -g @bubblewrap/cli
 
-      - name: Build APK from URL
+     - name: Build APK from URL
         run: |
-          # 1. Configuración silenciosa de Bubblewrap
+          # 1. Configuración de rutas
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
           
-          # 2. Generar el proyecto PWA de forma NO INTERACTIVA
-          # Usamos --skipConfig para que no pregunte nada y tome todo por defecto
-          bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig
+          # 2. Generar el proyecto usando "yes" para responder ENTER a todo
+          # Esto evita el error 130 de espera interactiva
+          echo "Iniciando generación para: ${{ github.event.client_payload.url }}"
           
-          # 3. Compilación forzada
-          # El flag --quiet evita logs innecesarios y --yes acepta licencias automáticamente
-          bubblewrap build --yes
+          yes "" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig || true
           
-          # 4. Preparar salida
+          # 3. Compilación silenciosa aceptando licencias
+          # Usamos 'yes' de nuevo por si Gradle pide aceptar licencias de Android SDK
+          yes | bubblewrap build --yes
+          
+          # 4. Mover el archivo final
           mkdir -p output
-          mv *.apk output/ || echo "Error: No se generó el APK"
+          mv *.apk output/ 2>/dev/null || echo "No se encontró APK, revisando carpetas..."
+          mv app/build/outputs/apk/release/*.apk output/ 2>/dev/null || true
 
       - name: Upload Finished APK
         uses: actions/upload-artifact@v4
