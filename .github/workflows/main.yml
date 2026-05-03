@@ -29,16 +29,21 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. PRE-CONFIGURACIÓN DE RUTAS
+          # 1. INSTALAR COMPONENTES DEL SDK QUE BUBBLEWRAP BUSCA
+          # Esto asegura que la validación de "androidSdk isn't correct" pase.
+          echo "Instalando Build Tools y Platform 34..."
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_HOME "build-tools;34.0.0" "platforms;android-34"
+
+          # 2. CONFIGURACIÓN DEL SISTEMA (JDK y SDK)
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\",\"lastCheckForUpdates\":$(date +%s%3N)}" > ~/.bubblewrap/config.json
 
-          # 2. CREACIÓN DEL KEYSTORE (FIRMA)
+          # 3. CREACIÓN DEL KEYSTORE (FIRMA)
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
-          # 3. CREAR EL ARCHIVO TWA-MANIFEST MANUALMENTE
+          # 4. CREAR EL ARCHIVO TWA-MANIFEST
           cat <<EOF > twa-manifest.json
           {
             "packageId": "cl.crispro941.twa",
@@ -72,20 +77,18 @@ jobs:
           }
           EOF
 
-          # 4. GENERAR PROYECTO ANDROID (UPDATE)
-          # Enviamos "1" para el versionCode y "1.0.0" para el versionName
-          # Esto evita el error de "Minimum length is 1"
-          echo "Generando archivos de Android..."
-          printf "1\n1.0.0\n" | bubblewrap update --skipConfig
+          # 5. GENERAR PROYECTO (UPDATE)
+          # Respondemos "1" y "1.0" para las preguntas de versión
+          printf "1\n1.0\n" | bubblewrap update --skipConfig
 
-          # 5. CONFIGURAR CONTRASEÑAS PARA EL BUILD SILENCIOSO
+          # 6. CONFIGURAR CONTRASEÑAS PARA EL BUILD
           echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"android\"}" > bubblewrap.json
 
-          # 6. COMPILACIÓN FINAL
-          echo "Compilando APK..."
-          bubblewrap build --yes --skipCheck
+          # 7. COMPILACIÓN FINAL (SIN SKIPCHECK PARA QUE REVALIDE)
+          echo "Iniciando compilación del APK..."
+          bubblewrap build --yes
 
-          # 7. MOVER RESULTADO
+          # 8. MOVER RESULTADO
           mkdir -p output
           find . -name "*.apk" -exec mv {} output/ \;
           
