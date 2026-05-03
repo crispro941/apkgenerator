@@ -29,31 +29,31 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. Registrar rutas oficialmente con 'doctor' para evitar el error de SDK
+          # 1. Configurar rutas oficialmente (Esto elimina el error de SDK)
           bubblewrap doctor --jdkPath="$JAVA_HOME" --androidSdkPath="$ANDROID_HOME"
           
-          # 2. Crear el Keystore ANTES del init (evita preguntas de nombre/apellido)
+          # 2. Crear Keystore antes del init para evitar prompts de datos personales
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
-          # 3. Inicializar proyecto (usando la URL del payload)
+          # 3. Inicializar el proyecto
           echo "Generando configuración para: ${{ github.event.client_payload.url }}"
           yes "" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig || true
           
-          # 4. Crear el archivo de contraseñas para el build silencioso
+          # 4. Crear archivo de configuración de firma para el build silencioso
           echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"android\"}" > bubblewrap.json
 
-          # 5. Compilación final sin pipes (ya no hay preguntas pendientes)
-          # --skipCheck evita que vuelva a validar el SDK que ya registramos
+          # 5. Compilación final sin 'yes |' para evitar el Broken Pipe
+          # Usamos --skipCheck porque ya validamos el SDK en el paso 1
           bubblewrap build --yes --skipCheck
           
-          # 6. Mover el archivo APK a la carpeta de salida
+          # 6. Mover el APK a la carpeta de salida
           mkdir -p output
           find . -name "*.apk" -exec mv {} output/ \;
           
           if [ -z "$(ls -A output)" ]; then
-            echo "Error: No se encontró el APK generado."
+            echo "Error: No se encontró el APK."
             exit 1
           fi
 
