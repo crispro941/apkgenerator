@@ -32,23 +32,20 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          echo "Iniciando generación para: ${{ github.event.client_payload.url }}"
+          echo "Generando APK para: ${{ github.event.client_payload.url }}"
           
-          # FORZAR CONFIGURACIÓN: Creamos el archivo de configuración de Bubblewrap directamente
-          # Esto evita que 'doctor' o 'init' pregunten por las rutas del JDK o SDK
+          # Configuración de rutas
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
           
-          # Ejecutamos init de forma no interactiva
-          # Usamos un archivo temporal para las respuestas de 'init' por si acaso
+          # Inicialización usando el manifiesto que acabas de crear
           bubblewrap init --url=${{ github.event.client_payload.url }} --yes
           
-          # Construimos el APK
+          # Construcción
           bubblewrap build --yes
           
-          # Organizamos la salida
           mkdir -p output
-          mv *.apk output/ || echo "No se encontró el APK en la raíz"
+          mv *.apk output/
 
       - name: Upload Finished APK
         uses: actions/upload-artifact@v4
