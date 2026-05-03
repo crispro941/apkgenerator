@@ -9,6 +9,7 @@ jobs:
     name: Build Android APK
     runs-on: ubuntu-latest
     env:
+      # Optimizamos para evitar advertencias de versiones antiguas de Node
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
@@ -33,15 +34,15 @@ jobs:
         run: |
           echo "Iniciando generación para: ${{ github.event.client_payload.url }}"
           
-          # 1. Instalar expect para automatizar el diálogo
+          # 1. Instalamos expect para automatizar el diálogo interactivo
           sudo apt-get update && sudo apt-get install -y expect
 
-          # 2. Forzar configuración de rutas
+          # 2. Forzamos la configuración de rutas del SDK y JDK
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
           
-          # 3. Automatizar el init con expect
-          # Este script espera cada pregunta y presiona ENTER automáticamente
+          # 3. Automatización del 'init' con expect
+          # Este script detecta las preguntas y envía un ENTER (\r) automáticamente
           expect -c "
           set timeout -1
           spawn bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}manifest.json --yes
@@ -58,13 +59,13 @@ jobs:
           "
 
           # 4. Compilación del APK real
-          # Este paso bajará el SDK de Android y tardará unos minutos
+          # Nota: Este paso descarga componentes de Android y puede tardar 2-4 minutos
           bubblewrap build --yes
           
-          # 5. Mover el resultado
+          # 5. Organización de archivos para la descarga final
           mkdir -p output
-          mv *.apk output/ || echo "No se encontró el APK"
-          
+          mv *.apk output/ || echo "No se encontró el archivo APK"
+
       - name: Upload Finished APK
         uses: actions/upload-artifact@v4
         with:
