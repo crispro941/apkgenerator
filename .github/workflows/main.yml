@@ -43,7 +43,6 @@ jobs:
           echo "V_NAME=${{ github.event.client_payload.vName }}"             >> $GITHUB_ENV
           echo "V_CODE=${{ github.event.client_payload.vCode }}"             >> $GITHUB_ENV
           
-          # Extraer Host (dominio) del URL
           APP_HOST=$(echo "${{ github.event.client_payload.url }}" | sed -e 's,https://,,;s,http://,,;s,/.*,,')
           echo "APP_HOST=$APP_HOST" >> $GITHUB_ENV
 
@@ -93,10 +92,14 @@ jobs:
           }
           EOF
 
-      # ── 4. Construcción del APK ──────────────────────────────
+      # ── 4. Construcción del APK (CORREGIDO) ──────────────────
       - name: Build APK with Bubblewrap
         run: |
-          # build genera el proyecto y compila en un solo paso
+          # 1. Forzar la creación del proyecto Android desde el manifiesto
+          # Usamos 'yes' para responder automáticamente a cualquier pregunta (como la del checksum)
+          yes | bubblewrap init --manifest twa-manifest.json --no-prompt
+
+          # 2. Compilar el APK
           bubblewrap build --no-prompt \
             --signingKeyPath="./android.keystore" \
             --signingKeyPassword="crispro941" \
@@ -106,22 +109,19 @@ jobs:
       # ── 5. Procesamiento de Salida ───────────────────────────
       - name: Prepare APK for delivery
         run: |
-          # Limpiar nombre de app para el archivo
           CLEAN_NAME=$(echo "$APP_NAME" | sed 's/ /_/g')
           FILE_NAME="${CLEAN_NAME}-v${V_NAME}.apk"
           
-          # Bubblewrap genera un archivo terminado en release-signed.apk
+          # Buscamos el APK firmado generado por Bubblewrap
           find . -name "*release-signed.apk" -exec cp {} app.apk \;
           
           echo "APK_NAME=$FILE_NAME" >> $GITHUB_ENV
-          echo "Final APK name: $FILE_NAME"
 
       - name: Upload APK to server
         run: |
           curl -f -v -X POST \
             -F "file=@app.apk" \
-            "https://tusitio.cl/upload_apk.php?key=CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024&name=$APK_NAME" \
-            || (echo "Upload failed" && exit 1)
+            "https://demo.crispro941.cl/apk/upload_apk.php?key=CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024&name=$APK_NAME"
 
       - name: Save APK as GitHub artifact
         uses: actions/upload-artifact@v4
