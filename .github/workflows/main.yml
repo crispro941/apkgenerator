@@ -39,7 +39,6 @@ jobs:
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
           # 3. CREAR EL ARCHIVO TWA-MANIFEST MANUALMENTE
-          # Este archivo contiene TODA la configuración, evitando el asistente interactivo.
           cat <<EOF > twa-manifest.json
           {
             "packageId": "cl.crispro941.twa",
@@ -74,22 +73,24 @@ jobs:
           EOF
 
           # 4. GENERAR PROYECTO ANDROID (UPDATE)
-          # 'update' genera la carpeta /app y los archivos gradle sin el asistente de 'init'
-          bubblewrap update --skipConfig
+          # 'yes ""' responde ENTER a las preguntas de "versionCode" y "versionName"
+          echo "Generando archivos de Android..."
+          yes "" | bubblewrap update --skipConfig
 
           # 5. CONFIGURAR CONTRASEÑAS PARA EL BUILD
           echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"android\"}" > bubblewrap.json
 
           # 6. COMPILACIÓN FINAL
-          # Aceptamos licencias y compilamos.
-          yes | bubblewrap build --yes --skipCheck
+          # Usamos --yes para aceptar licencias y --skipCheck para no re-validar el SDK
+          echo "Compilando APK..."
+          bubblewrap build --yes --skipCheck
 
           # 7. MOVER RESULTADO
           mkdir -p output
           find . -name "*.apk" -exec mv {} output/ \;
           
           if [ -z "$(ls -A output)" ]; then
-            echo "Error: No se generó el APK."
+            echo "Error: No se encontró ningún APK en la carpeta de salida."
             exit 1
           fi
 
