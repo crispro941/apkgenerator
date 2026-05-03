@@ -29,17 +29,17 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. CONFIGURACIÓN DE RUTAS
+          # 1. PRE-CONFIGURACIÓN DE RUTAS
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\",\"lastCheckForUpdates\":$(date +%s%3N)}" > ~/.bubblewrap/config.json
 
-          # 2. CREACIÓN DEL KEYSTORE (Firma)
+          # 2. CREACIÓN DEL KEYSTORE
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
-          # 3. GENERACIÓN MANUAL DEL ARCHIVO DE PROYECTO (twa-manifest.json)
-          # Esto evita que Bubblewrap haga preguntas.
+          # 3. CREACIÓN DEL ARCHIVO DE CONFIGURACIÓN TWA
+          # Nota: 'host' no lleva 'https://', solo el dominio.
           cat <<EOF > twa-manifest.json
           {
             "packageId": "cl.crispro941.twa",
@@ -48,48 +48,40 @@ jobs:
             "shortName": "CRISPRO941",
             "themeColor": "#000000",
             "navigationColor": "#000000",
-            "navigationColorDark": "#000000",
-            "navigationDividerColor": "#000000",
-            "navigationDividerColorDark": "#000000",
             "backgroundColor": "#ffffff",
-            "enableNotifications": false,
             "startUrl": "/",
             "iconUrl": "https://i.ibb.co/M5BsCD9K/descarga.png",
             "maskableIconUrl": "https://i.ibb.co/M5BsCD9K/descarga.png",
-            "splashScreenFadeOutDuration": 300,
-            "signingKey": {
-              "path": "./android.keystore",
-              "alias": "android"
-            },
             "appVersionCode": 1,
             "appVersionName": "1.0.0",
             "orientation": "portrait",
             "display": "standalone",
-            "unsupportedFeatures": [],
-            "isChromeOSOnly": false,
-            "isWebWidgetsEnabled": false,
-            "shortcuts": [],
+            "signingKey": {
+              "path": "./android.keystore",
+              "alias": "android"
+            },
             "generatorApp": "bubblewrap-cli",
             "webManifestUrl": "https://crispro941.cl/manifest.json",
             "fallbackType": "customtabs",
             "features": {},
-            "alphaDependencies": {
-              "enabled": false
-            },
+            "alphaDependencies": { "enabled": false },
             "enableSiteSettingsShortcut": true,
-            "isMultiColorSchemeEnabled": false
+            "isMultiColorSchemeEnabled": false,
+            "isWebWidgetsEnabled": false,
+            "shortcuts": [],
+            "unsupportedFeatures": []
           }
           EOF
 
-          # 4. INICIALIZAR DESDE EL ARCHIVO CREADO
-          # 'init --skipConfig' leerá el twa-manifest.json que acabamos de escribir
-          bubblewrap init --manifest=twa-manifest.json --skipConfig
+          # 4. INICIALIZAR DESDE EL ARCHIVO LOCAL
+          # El flag correcto es --twaManifest (con M mayúscula)
+          bubblewrap init --twaManifest=twa-manifest.json --skipConfig
 
           # 5. CONFIGURACIÓN DE CONTRASEÑAS PARA EL BUILD
           echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"android\"}" > bubblewrap.json
 
           # 6. COMPILACIÓN FINAL
-          # Aceptamos licencias y compilamos
+          # Aceptamos licencias y compilamos. --skipCheck evita que valide el SDK de nuevo.
           yes | bubblewrap build --yes --skipCheck
 
           # 7. MOVER RESULTADO A OUTPUT
