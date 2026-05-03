@@ -29,29 +29,28 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. LIMPIEZA Y CONFIGURACIÓN MANUAL TOTAL
-          # Creamos la configuración global con rutas absolutas de GitHub Actions
-          rm -rf ~/.bubblewrap
+          # 1. PRE-CONFIGURACIÓN ABSOLUTA
+          # Forzamos la creación del directorio y el archivo de configuración con rutas del sistema
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\",\"lastCheckForUpdates\":$(date +%s%3N)}" > ~/.bubblewrap/config.json
           
-          # 2. CREAR KEYSTORE (Firma de CRISPRO941)
-          # Lo creamos antes para que Bubblewrap lo encuentre listo
+          # 2. CREACIÓN DEL KEYSTORE (Firma de CRISPRO941)
+          # Lo creamos ANTES para que Bubblewrap lo encuentre y no haga preguntas de nombres
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
           # 3. INICIALIZAR PROYECTO
-          # Quitamos el echo "n" para que el 'yes ""' funcione limpio con el dominio real
+          # 'yes ""' responde ENTER a Domain y URL Path automáticamente
           echo "Generando configuración para: ${{ github.event.client_payload.url }}"
           yes "" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig || true
           
-          # 4. INYECTAR FIRMA EN EL PROYECTO
-          # Esto asegura que Bubblewrap sepa qué contraseña usar sin preguntar
+          # 4. INYECTAR CONTRASEÑAS PARA BUILD SILENCIOSO
+          # Este archivo bubblewrap.json le dice al comando 'build' qué firma usar sin preguntar
           echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"android\"}" > bubblewrap.json
 
-          # 5. COMPILACIÓN (Usando flags para saltar validaciones redundantes)
-          # Usamos --skipCheck para que ignore cualquier supuesto error del SDK que ya configuramos
+          # 5. COMPILACIÓN (Sin 'yes |' para evitar el Broken Pipe)
+          # El flag --skipCheck es vital para que no intente validar el SDK de nuevo
           bubblewrap build --yes --skipCheck
           
           # 6. MOVER RESULTADO
@@ -59,7 +58,7 @@ jobs:
           find . -name "*.apk" -exec mv {} output/ \;
           
           if [ -z "$(ls -A output)" ]; then
-            echo "Error crítico: No se generó el archivo APK."
+            echo "Error: No se generó el APK."
             exit 1
           fi
 
