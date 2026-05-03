@@ -45,7 +45,6 @@ jobs:
           echo "PKG_ID=${{ github.event.client_payload.packageId }}"         >> $GITHUB_ENV
           echo "V_NAME=${{ github.event.client_payload.vName }}"             >> $GITHUB_ENV
           echo "V_CODE=${{ github.event.client_payload.vCode }}"             >> $GITHUB_ENV
-          # Host sin protocolo ni path
           APP_HOST=$(echo "${{ github.event.client_payload.url }}" | sed -e 's,https://,,;s,http://,,;s,/.*,,')
           echo "APP_HOST=$APP_HOST" >> $GITHUB_ENV
 
@@ -87,7 +86,7 @@ jobs:
             "appVersionCode":    $V_CODE,
             "appVersionName":    "$V_NAME",
             "signingKey": {
-              "path":  "./android.keystore",
+              "path":  "../android.keystore",
               "alias": "android"
             },
             "webManifestUrl":    "$MANIFEST_URL",
@@ -98,31 +97,33 @@ jobs:
           EOF
 
       # ── Init & Build ─────────────────────────────────────────
-      - name: Bubblewrap init
-        run: printf "1\n$V_NAME\n" | bubblewrap init --manifest "$MANIFEST_URL" || true
-
-      - name: Build APK
+      - name: Bubblewrap Init and Build
         run: |
-          chmod +x gradlew
-          ./gradlew assembleRelease \
-            -Pandroid.injected.signing.store.file=../android.keystore \
-            -Pandroid.injected.signing.store.password=crispro941 \
-            -Pandroid.injected.signing.key.alias=android \
-            -Pandroid.injected.signing.key.password=crispro941
+          # 1. Inicializar el proyecto en una carpeta específica para no perder el rastro
+          bubblewrap init --manifest twa-manifest.json --directory ./android-project --skipProxy
+          
+          # 2. Entrar a la carpeta y construir usando bubblewrap (esto maneja el gradlew automáticamente)
+          cd android-project
+          bubblewrap build \
+            --signingKeyPath ../android.keystore \
+            --signingKeyAlias android \
+            --signingKeyPassword "crispro941" \
+            --signingStorePassword "crispro941" \
+            --skipProxy
+          
+          # 3. Mover el APK generado a la raíz para los siguientes pasos
+          mv ./app-release-signed.apk ../app.apk
 
       # ── Renombrar y subir ────────────────────────────────────
-      - name: Rename APK
+      - name: Rename and Upload
         run: |
+          # Formatear nombre: Reemplazar espacios por guiones bajos
           FILE_NAME=$(echo "$APP_NAME" | sed 's/ /_/g')-v${V_NAME}.apk
-          find . -name "*-release.apk" -exec cp {} app.apk \;
           echo "APK_NAME=$FILE_NAME" >> $GITHUB_ENV
-
-      - name: Upload APK to server
-        run: |
+          
           curl -f -X POST \
             -F "file=@app.apk" \
-            "https://demo.crispro941.cl/apk/v2/upload_apk.php?key=CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024&name=$APK_NAME" \
-            || (echo "Upload failed" && exit 1)
+            "https://demo.crispro941.cl/apk/v2/upload_apk.php?key=CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024&name=$FILE_NAME"
 
       # ── Guardar APK como artifact de GitHub (opcional) ───────
       - name: Save APK as GitHub artifact
