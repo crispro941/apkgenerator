@@ -1,4 +1,4 @@
-name: APK Generator Pipeline
+name: APK Generator Pro
 
 on:
   repository_dispatch:
@@ -6,17 +6,10 @@ on:
 
 jobs:
   build:
-    name: Build Android APK
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -24,80 +17,65 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Install Bubblewrap CLI
+      - name: Install Bubblewrap
         run: npm install -g @bubblewrap/cli
 
       - name: Build APK from URL
         run: |
-          # 1. RUTA ABSOLUTA
+          # 1. RUTA ABSOLUTA Y VARIABLES
           CUR_DIR=$(pwd)
           KEYSTORE_PATH="$CUR_DIR/android.keystore"
           
-          # 2. CAPTURAR PAYLOAD DINÁMICO
           APP_URL="${{ github.event.client_payload.url }}"
           APP_HOST=$(echo $APP_URL | sed -e 's,https://,,;s,/.*,,')
           APP_NAME="${{ github.event.client_payload.appName }}"
-          PACKAGE_ID="${{ github.event.client_payload.packageId }}"
-          THEME_COLOR="${{ github.event.client_payload.themeColor }}"
-          BG_COLOR="${{ github.event.client_payload.backgroundColor }}"
-          ICON_URL="${{ github.event.client_payload.iconUrl }}"
-          # NUEVOS CAMPOS
-          DISPLAY_MODE="${{ github.event.client_payload.display || 'standalone' }}"
-          ORIENTATION="${{ github.event.client_payload.orientation || 'portrait' }}"
-          V_NAME="${{ github.event.client_payload.vName || '1.0.0' }}"
-          V_CODE="${{ github.event.client_payload.vCode || '1' }}"
+          # Limpiamos el nombre de la app para el archivo (sin espacios)
+          FILE_SAFE_NAME=$(echo "$APP_NAME" | sed 's/ /_/g')
+          
+          V_NAME="${{ github.event.client_payload.vName }}"
+          V_CODE="${{ github.event.client_payload.vCode }}"
 
-          # 3. CONFIGURACIÓN DEL SISTEMA
+          # 2. CONFIGURACIÓN BUBBLEWRAP
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\"}" > ~/.bubblewrap/config.json
 
-          # 4. KEYSTORE
+          # 3. FIRMA (KEYSTORE)
           keytool -genkey -v -keystore "$KEYSTORE_PATH" -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
-          # 5. TWA-MANIFEST ULTRA PERSONALIZADO
+          # 4. MANIFEST DINÁMICO
           cat <<EOF > twa-manifest.json
           {
-            "packageId": "$PACKAGE_ID",
+            "packageId": "${{ github.event.client_payload.packageId }}",
             "host": "$APP_HOST",
             "name": "$APP_NAME",
             "shortName": "$APP_NAME",
-            "themeColor": "$THEME_COLOR",
-            "navigationColor": "$THEME_COLOR",
-            "backgroundColor": "$BG_COLOR",
+            "themeColor": "${{ github.event.client_payload.themeColor }}",
+            "navigationColor": "${{ github.event.client_payload.themeColor }}",
+            "backgroundColor": "${{ github.event.client_payload.backgroundColor }}",
             "startUrl": "/",
-            "iconUrl": "$ICON_URL",
-            "maskableIconUrl": "$ICON_URL",
-            "splashScreenFadeOutDuration": 300,
+            "iconUrl": "${{ github.event.client_payload.iconUrl }}",
+            "maskableIconUrl": "${{ github.event.client_payload.iconUrl }}",
             "appVersionCode": $V_CODE,
             "appVersionName": "$V_NAME",
-            "signingKey": {
-              "path": "$KEYSTORE_PATH",
-              "alias": "android"
-            },
-            "orientation": "$ORIENTATION",
-            "display": "$DISPLAY_MODE",
+            "signingKey": { "path": "$KEYSTORE_PATH", "alias": "android" },
+            "orientation": "${{ github.event.client_payload.orientation }}",
+            "display": "${{ github.event.client_payload.display }}",
             "webManifestUrl": "$APP_URL/manifest.json",
             "fallbackType": "customtabs",
             "features": {},
-            "enableNotifications": false,
-            "alphaDependencies": { "enabled": false },
-            "enableSiteSettingsShortcut": true,
-            "isMultiColorSchemeEnabled": false,
-            "isWebWidgetsEnabled": false,
-            "shortcuts": [],
-            "unsupportedFeatures": []
+            "alphaDependencies": { "enabled": false }
           }
           EOF
 
-          # 6. GENERAR Y PARCHEAR
+          # 5. GENERAR Y PARCHEAR
           printf "$V_CODE\n$V_NAME\n" | bubblewrap update --skipConfig
-          sed -i "s/enableNotifications: ,/enableNotifications: false,/g" app/build.gradle
-          sed -i "s/splashScreenFadeOutDuration: ,/splashScreenFadeOutDuration: 300,/g" app/build.gradle
+          sed -i 's/enableNotifications: ,/enableNotifications: false,/g' app/build.gradle
+          sed -i 's/splashScreenFadeOutDuration: ,/splashScreenFadeOutDuration: 300,/g' app/build.gradle
           sed -i 's/: ,/: "" ,/g' app/build.gradle
 
-          # 7. GRADLE
+          # 6. GRADLE BUILD
           chmod +x gradlew
           ./gradlew assembleRelease \
             -Pandroid.injected.signing.store.file="$KEYSTORE_PATH" \
@@ -105,13 +83,11 @@ jobs:
             -Pandroid.injected.signing.key.alias=android \
             -Pandroid.injected.signing.key.password=crispro941
 
-          # 8. OUTPUT
+          # 7. ENVIAR AL SERVIDOR (Aquí construimos el nombre final)
+          FINAL_FILENAME="${FILE_SAFE_NAME}-v${V_NAME}.apk"
           mkdir -p output
           find . -name "*release.apk" -exec mv {} output/app-release.apk \;
-
-      - name: Upload Finished APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: App_Generada_Crispro
-          path: "output/*.apk"
-          retention-days: 1
+          
+          # REEMPLAZA "tusitio.cl" con tu dominio real
+          curl -X POST -F "file=@output/app-release.apk" \
+          "https://tusitio.cl/upload_apk.php?key=CRISPRO_941_ALTA_SEGURIDAD_XYZ_2024&name=$FINAL_FILENAME"
