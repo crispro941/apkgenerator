@@ -29,32 +29,31 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. Configurar Bubblewrap de forma explícita antes de empezar
-          # Esto evita que 'build' se queje del SDK
+          # 1. Registrar rutas oficialmente con 'doctor' para evitar el error de SDK
           bubblewrap doctor --jdkPath="$JAVA_HOME" --androidSdkPath="$ANDROID_HOME"
           
-          # 2. Crear el Keystore de CRISPRO941
+          # 2. Crear el Keystore ANTES del init (evita preguntas de nombre/apellido)
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
-          # 3. Inicializar proyecto
+          # 3. Inicializar proyecto (usando la URL del payload)
           echo "Generando configuración para: ${{ github.event.client_payload.url }}"
           yes "" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig || true
           
-          # 4. Inyectar contraseñas y firma
+          # 4. Crear el archivo de contraseñas para el build silencioso
           echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"android\"}" > bubblewrap.json
 
-          # 5. Compilación final con flags de NO INTERACCIÓN
-          # Eliminamos el 'yes |' para evitar el "Broken pipe" y usamos los flags nativos
+          # 5. Compilación final sin pipes (ya no hay preguntas pendientes)
+          # --skipCheck evita que vuelva a validar el SDK que ya registramos
           bubblewrap build --yes --skipCheck
           
-          # 6. Mover APK a carpeta de salida
+          # 6. Mover el archivo APK a la carpeta de salida
           mkdir -p output
           find . -name "*.apk" -exec mv {} output/ \;
           
           if [ -z "$(ls -A output)" ]; then
-            echo "Error: No se generó el APK."
+            echo "Error: No se encontró el APK generado."
             exit 1
           fi
 
