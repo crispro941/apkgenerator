@@ -29,42 +29,75 @@ jobs:
 
       - name: Build APK from URL
         run: |
-          # 1. INSTALAR DEPENDENCIAS EXTRA (Para asegurar compatibilidad)
-          sudo apt-get update && sudo apt-get install -y expect
-
-          # 2. CONFIGURACIÓN DEL ENTORNO
-          # Creamos el config.json con las rutas exactas del runner
+          # 1. CONFIGURACIÓN DE RUTAS
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\",\"lastCheckForUpdates\":$(date +%s%3N)}" > ~/.bubblewrap/config.json
-          
-          # 3. ACEPTAR LICENCIAS DE ANDROID (Vital para que 'build' no falle)
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-          # 4. CREACIÓN DEL KEYSTORE
+          # 2. CREACIÓN DEL KEYSTORE (Firma)
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
-          # 5. INICIALIZAR PROYECTO
-          # Usamos un archivo de respuestas para evitar el Broken Pipe y asegurar que tome los valores correctos
-          echo "Generando proyecto para: ${{ github.event.client_payload.url }}"
-          
-          # Respuestas: URL, Path, Name, ShortName, AppID, Version, Display, Orientation, StatusColor, SplashColor, Icon, MaskableIcon, Monochrome, Shortcuts, PlayBilling, Geolocation, KeystorePath, KeyAlias
-          printf "${{ github.event.client_payload.url }}\n/\nCRISPRO941\nCRISPRO941\ncl.crispro941.twa\n1\nstandalone\nportrait\n#000000\n#FFFFFF\nhttps://i.ibb.co/M5BsCD9K/descarga.png\nhttps://i.ibb.co/M5BsCD9K/descarga.png\n\nn\nn\nn\n./android.keystore\nandroid\n" | bubblewrap init --url=${{ github.event.client_payload.url }} --manifest=${{ github.event.client_payload.url }}/manifest.json --skipConfig
+          # 3. GENERACIÓN MANUAL DEL ARCHIVO DE PROYECTO (twa-manifest.json)
+          # Esto evita que Bubblewrap haga preguntas.
+          cat <<EOF > twa-manifest.json
+          {
+            "packageId": "cl.crispro941.twa",
+            "host": "crispro941.cl",
+            "name": "CRISPRO941 - Soluciones Digitales",
+            "shortName": "CRISPRO941",
+            "themeColor": "#000000",
+            "navigationColor": "#000000",
+            "navigationColorDark": "#000000",
+            "navigationDividerColor": "#000000",
+            "navigationDividerColorDark": "#000000",
+            "backgroundColor": "#ffffff",
+            "enableNotifications": false,
+            "startUrl": "/",
+            "iconUrl": "https://i.ibb.co/M5BsCD9K/descarga.png",
+            "maskableIconUrl": "https://i.ibb.co/M5BsCD9K/descarga.png",
+            "splashScreenFadeOutDuration": 300,
+            "signingKey": {
+              "path": "./android.keystore",
+              "alias": "android"
+            },
+            "appVersionCode": 1,
+            "appVersionName": "1.0.0",
+            "orientation": "portrait",
+            "display": "standalone",
+            "unsupportedFeatures": [],
+            "isChromeOSOnly": false,
+            "isWebWidgetsEnabled": false,
+            "shortcuts": [],
+            "generatorApp": "bubblewrap-cli",
+            "webManifestUrl": "https://crispro941.cl/manifest.json",
+            "fallbackType": "customtabs",
+            "features": {},
+            "alphaDependencies": {
+              "enabled": false
+            },
+            "enableSiteSettingsShortcut": true,
+            "isMultiColorSchemeEnabled": false
+          }
+          EOF
 
-          # 6. INYECTAR CONTRASEÑAS PARA FIRMA
+          # 4. INICIALIZAR DESDE EL ARCHIVO CREADO
+          # 'init --skipConfig' leerá el twa-manifest.json que acabamos de escribir
+          bubblewrap init --manifest=twa-manifest.json --skipConfig
+
+          # 5. CONFIGURACIÓN DE CONTRASEÑAS PARA EL BUILD
           echo "{\"passwords\":{\"keystore\":\"crispro941\",\"key\":\"crispro941\"},\"keyPath\":\"./android.keystore\",\"alias\":\"android\"}" > bubblewrap.json
 
-          # 7. COMPILACIÓN CON FORZADO DE SDK
-          # Usamos --yes para aceptar cualquier diálogo restante
-          bubblewrap build --yes --skipCheck
+          # 6. COMPILACIÓN FINAL
+          # Aceptamos licencias y compilamos
+          yes | bubblewrap build --yes --skipCheck
 
-          # 8. MOVER RESULTADO
+          # 7. MOVER RESULTADO A OUTPUT
           mkdir -p output
           find . -name "*.apk" -exec mv {} output/ \;
           
           if [ -z "$(ls -A output)" ]; then
-            echo "Error: El archivo APK no se encontró."
+            echo "Error: No se generó el APK."
             exit 1
           fi
 
