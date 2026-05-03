@@ -33,12 +33,12 @@ jobs:
           mkdir -p ~/.bubblewrap
           echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_HOME\",\"lastCheckForUpdates\":$(date +%s%3N)}" > ~/.bubblewrap/config.json
 
-          # 2. CREACIÓN DEL KEYSTORE (FIRMA)
+          # 2. CREACIÓN DEL KEYSTORE
           keytool -genkey -v -keystore android.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "crispro941" -keypass "crispro941" \
             -dname "CN=Cristobal Paez, OU=Dev, O=CRISPRO941, L=Las Cabras, S=OHiggins, C=CL"
 
-          # 3. CREAR EL ARCHIVO TWA-MANIFEST
+          # 3. CREAR EL ARCHIVO TWA-MANIFEST COMPLETO
           cat <<EOF > twa-manifest.json
           {
             "packageId": "cl.crispro941.twa",
@@ -62,7 +62,11 @@ jobs:
             "generatorApp": "bubblewrap-cli",
             "webManifestUrl": "https://crispro941.cl/manifest.json",
             "fallbackType": "customtabs",
-            "features": {},
+            "features": {
+                "locationDelegation": { "enabled": false },
+                "playBilling": { "enabled": false }
+            },
+            "enableNotifications": false,
             "alphaDependencies": { "enabled": false },
             "enableSiteSettingsShortcut": true,
             "isMultiColorSchemeEnabled": false,
@@ -73,14 +77,16 @@ jobs:
           EOF
 
           # 4. GENERAR PROYECTO ANDROID (UPDATE)
-          # Esto crea la carpeta interna del proyecto
           echo "Generando estructura del proyecto..."
           printf "1\n1.0.0\n" | bubblewrap update --skipConfig
 
-          # 5. COMPILACIÓN DIRECTA CON GRADLE (Saltamos el error de Bubblewrap)
-          # Entramos a la carpeta generada y compilamos el APK Release
-          echo "Compilando con Gradle..."
-          cd ./app-release || cd .
+          # 5. PARCHE DE EMERGENCIA (Corrige el error de sintaxis en build.gradle)
+          # Buscamos la línea "enableNotifications: ," y la cambiamos por "enableNotifications: false,"
+          echo "Aplicando parche de sintaxis al build.gradle..."
+          sed -i 's/enableNotifications: ,/enableNotifications: false,/g' app/build.gradle
+
+          # 6. COMPILACIÓN DIRECTA CON GRADLE
+          echo "Iniciando compilación con Gradle..."
           chmod +x gradlew
           ./gradlew assembleRelease \
             -Pandroid.injected.signing.store.file=../android.keystore \
@@ -88,8 +94,7 @@ jobs:
             -Pandroid.injected.signing.key.alias=android \
             -Pandroid.injected.signing.key.password=crispro941
 
-          # 6. ORGANIZAR RESULTADOS
-          cd ..
+          # 7. ORGANIZAR RESULTADO
           mkdir -p output
           find . -name "*release.apk" -exec mv {} output/app-release.apk \;
           
