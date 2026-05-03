@@ -96,17 +96,18 @@ jobs:
           }
           EOF
 
-      # ── Init & Build (Versión no interactiva) ────────────────
+      # ── Init & Build (Solución al error 130) ────────────────
       - name: Bubblewrap Init and Build
         run: |
-          # 1. Crear la carpeta manualmente para evitar la primera pregunta
+          # 1. Crear la carpeta y entrar en ella ANTES de correr bubblewrap
           mkdir -p android-project
-          
-          # 2. Usar 'yes' para responder automáticamente a cualquier otra confirmación
-          yes | bubblewrap init --manifest twa-manifest.json --directory ./android-project --skipProxy
-          
-          # 3. Entrar y construir
           cd android-project
+          
+          # 2. Correr init DESDE ADENTRO de la carpeta. 
+          # Usamos printf para enviar un "y" y un Enter por si acaso pregunta algo más.
+          printf "y\n" | bubblewrap init --manifest ../twa-manifest.json --skipProxy
+          
+          # 3. Construir el APK
           bubblewrap build \
             --signingKeyPath ../android.keystore \
             --signingKeyAlias android \
@@ -114,7 +115,7 @@ jobs:
             --signingStorePassword "crispro941" \
             --skipProxy
           
-          # 4. Mover el APK final (el que está firmado) a la raíz
+          # 4. Mover el resultado a la raíz
           cp ./app-release-signed.apk ../app.apk
 
       # ── Renombrar y subir ────────────────────────────────────
